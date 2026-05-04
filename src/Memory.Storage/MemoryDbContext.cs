@@ -14,6 +14,7 @@ public sealed class MemoryDbContext(DbContextOptions<MemoryDbContext> options) :
     public DbSet<Episode> Episodes => Set<Episode>();
     public DbSet<Note> Notes => Set<Note>();
     public DbSet<NoteEmbedding> NoteEmbeddings => Set<NoteEmbedding>();
+    public DbSet<NoteEntityMention> NoteEntityMentions => Set<NoteEntityMention>();
     public DbSet<Reflection> Reflections => Set<Reflection>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)

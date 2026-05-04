@@ -34,6 +34,14 @@ public sealed class NoteEmbedding
     public required DateTimeOffset CreatedAt { get; init; }
 }
 
+public sealed class NoteEntityMention
+{
+    public required NoteId NoteId { get; init; }
+    public required EntityId EntityId { get; init; }
+    public required ProjectId Project { get; init; }
+    public required DateTimeOffset CreatedAt { get; init; }
+}
+
 public sealed class Entity
 {
     public required EntityId Id { get; init; }

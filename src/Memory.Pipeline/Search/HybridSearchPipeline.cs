@@ -37,7 +37,14 @@ internal sealed class HybridSearchPipeline(
         var conn = (NpgsqlConnection)db.Database.GetDbConnection();
 
         var sqlBuilder = new StringBuilder("""
-            SELECT n.id, n.content, ne.embedding <=> @query AS distance
+            SELECT n.id,
+                   n.content,
+                   ne.embedding <=> @query AS distance,
+                   COALESCE(
+                     (SELECT array_agg(m.entity_id)
+                      FROM memory.note_entity_mentions m
+                      WHERE m.note_id = n.id),
+                     ARRAY[]::uuid[]) AS related_entity_ids
             FROM memory.notes n
             JOIN memory.note_embeddings ne ON ne.note_id = n.id
             WHERE n.superseded_at IS NULL
@@ -79,7 +86,11 @@ internal sealed class HybridSearchPipeline(
             var content = reader.GetString(1);
             var distance = reader.GetDouble(2);
             var score = Math.Max(0.0, 1.0 - distance);
-            hits.Add(new SearchHit(noteId, content, score, Array.Empty<EntityId>()));
+
+            var relatedRaw = (Guid[])reader.GetValue(3);
+            var related = relatedRaw.Select(g => new EntityId(g)).ToArray();
+
+            hits.Add(new SearchHit(noteId, content, score, related));
         }
 
         return new SearchResult(hits, hits.Count);

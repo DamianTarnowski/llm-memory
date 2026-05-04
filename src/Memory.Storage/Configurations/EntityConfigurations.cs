@@ -155,6 +155,28 @@ internal sealed class NoteEmbeddingConfiguration : IEntityTypeConfiguration<Note
     }
 }
 
+internal sealed class NoteEntityMentionConfiguration : IEntityTypeConfiguration<NoteEntityMention>
+{
+    public void Configure(EntityTypeBuilder<NoteEntityMention> b)
+    {
+        b.ToTable("note_entity_mentions");
+        b.HasKey(m => new { m.NoteId, m.EntityId });
+        b.Property(m => m.NoteId).HasColumnName("note_id");
+        b.Property(m => m.EntityId).HasColumnName("entity_id");
+        b.Property(m => m.Project).HasColumnName("project_id");
+        b.Property(m => m.CreatedAt).HasColumnName("created_at");
+        b.HasIndex(m => m.EntityId);
+        b.HasIndex(m => m.Project);
+
+        b.HasOne<Note>().WithMany()
+            .HasForeignKey(m => m.NoteId)
+            .OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Project>().WithMany()
+            .HasForeignKey(m => m.Project)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
 internal sealed class ReflectionConfiguration : IEntityTypeConfiguration<Reflection>
 {
     public void Configure(EntityTypeBuilder<Reflection> b)

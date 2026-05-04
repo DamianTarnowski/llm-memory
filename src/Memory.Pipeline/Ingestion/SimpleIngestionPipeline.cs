@@ -81,6 +81,18 @@ internal sealed class SimpleIngestionPipeline(
                 now,
                 ct).ConfigureAwait(false);
             entityMap[ext.Name] = id;
+
+            db.NoteEntityMentions.Add(new NoteEntityMention
+            {
+                NoteId = note.Id,
+                EntityId = id,
+                Project = scope.Project,
+                CreatedAt = now,
+            });
+        }
+        if (entityMap.Count > 0)
+        {
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
 
         foreach (var ext in extraction.Relationships)
