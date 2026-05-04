@@ -1,5 +1,7 @@
+using Anthropic.SDK;
 using Azure;
 using Azure.AI.OpenAI;
+using Memory.Llm.Providers;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using OpenAI;
@@ -44,9 +46,9 @@ internal sealed class LlmGateway(IOptions<LlmOptions> options) : ILlmGateway, ID
     {
         LlmProviderKind.AzureOpenAI => CreateAzureOpenAiChat(),
         LlmProviderKind.OpenAI => CreateOpenAiChat(),
-        LlmProviderKind.AwsBedrock => throw NotYetImplemented("AWS Bedrock chat"),
-        LlmProviderKind.GoogleVertex => throw NotYetImplemented("Google Vertex chat"),
-        LlmProviderKind.Anthropic => throw NotYetImplemented("Anthropic direct chat"),
+        LlmProviderKind.Anthropic => CreateAnthropicChat(),
+        LlmProviderKind.GoogleVertex => CreateVertexChat(),
+        LlmProviderKind.AwsBedrock => CreateBedrockChat(),
         _ => throw new InvalidOperationException($"Unknown chat provider '{_opts.ChatProvider}'."),
     };
 
@@ -54,8 +56,12 @@ internal sealed class LlmGateway(IOptions<LlmOptions> options) : ILlmGateway, ID
     {
         LlmProviderKind.AzureOpenAI => CreateAzureOpenAiEmbeddings(),
         LlmProviderKind.OpenAI => CreateOpenAiEmbeddings(),
-        LlmProviderKind.AwsBedrock => throw NotYetImplemented("AWS Bedrock embeddings"),
-        LlmProviderKind.GoogleVertex => throw NotYetImplemented("Google Vertex embeddings"),
+        LlmProviderKind.AwsBedrock => throw new NotImplementedException(
+            "AWS Bedrock embedding provider is not yet wired. Use OpenAI or AzureOpenAI for embeddings, " +
+            "or implement BedrockEmbeddingGenerator wrapping AmazonBedrockRuntimeClient.InvokeModelAsync."),
+        LlmProviderKind.GoogleVertex => throw new NotImplementedException(
+            "Google Vertex embedding provider is not yet wired. Use OpenAI or AzureOpenAI for embeddings, " +
+            "or implement VertexEmbeddingGenerator (POST to publishers/google/models/{model}:predict)."),
         LlmProviderKind.Anthropic => throw new NotSupportedException(
             "Anthropic does not provide embedding models — pick a different provider for EmbeddingProvider."),
         _ => throw new InvalidOperationException($"Unknown embedding provider '{_opts.EmbeddingProvider}'."),
@@ -101,6 +107,38 @@ internal sealed class LlmGateway(IOptions<LlmOptions> options) : ILlmGateway, ID
         return client.GetEmbeddingClient(_opts.EmbeddingModel).AsIEmbeddingGenerator();
     }
 
+    private IChatClient CreateAnthropicChat()
+    {
+        var s = _opts.Anthropic;
+        Require(s.ApiKey, "Llm:Anthropic:ApiKey");
+
+        var client = new AnthropicClient(s.ApiKey);
+        return client.Messages;
+    }
+
+    private IChatClient CreateVertexChat()
+    {
+        var s = _opts.GoogleVertex;
+        Require(s.ProjectId, "Llm:GoogleVertex:ProjectId");
+        Require(s.AdcCredentialsPath, "Llm:GoogleVertex:AdcCredentialsPath");
+        Require(s.ChatModelId, "Llm:GoogleVertex:ChatModelId");
+
+        return new VertexChatClient(
+            new VertexAccessTokenProvider(s.AdcCredentialsPath),
+            s.ProjectId,
+            s.Location,
+            s.ChatModelId);
+    }
+
+    private IChatClient CreateBedrockChat()
+    {
+        var s = _opts.AwsBedrock;
+        Require(s.Region, "Llm:AwsBedrock:Region");
+        Require(s.ChatModelId, "Llm:AwsBedrock:ChatModelId");
+
+        return new BedrockChatClient(s.Region, s.ChatModelId);
+    }
+
     private static void Require(string value, string configKey)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -110,6 +148,4 @@ internal sealed class LlmGateway(IOptions<LlmOptions> options) : ILlmGateway, ID
         }
     }
 
-    private static NotImplementedException NotYetImplemented(string what) =>
-        new($"{what} provider is not yet implemented in LlmGateway. Wire it up via Microsoft.Extensions.AI in src/Memory.Llm/LlmGateway.cs.");
 }

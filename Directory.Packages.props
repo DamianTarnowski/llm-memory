@@ -15,6 +15,7 @@
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.5.1" />
     <PackageVersion Include="Azure.AI.OpenAI" Version="2.1.0" />
     <PackageVersion Include="OpenAI" Version="2.10.0" />
+    <PackageVersion Include="Anthropic.SDK" Version="5.10.0" />
     <PackageVersion Include="AWSSDK.BedrockRuntime" Version="4.0.17.5" />
 
     <!-- ASP.NET Core / Hosting -->

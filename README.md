@@ -47,10 +47,41 @@ Web UI (Blazor WASM)       ──HTTP──▶    Memory.Api
 ## Prerequisites
 
 - **.NET 10 SDK 10.0.101** (pinned in `global.json`).
-- **Postgres 16+** running locally with both extensions installed:
-  - `pgvector` (https://github.com/pgvector/pgvector)
-  - `Apache AGE` 1.5 / 1.6 (https://age.apache.org/) — must be on `shared_preload_libraries`.
-- For cloud deploy later: **Azure Database for PostgreSQL Flexible Server PG 16** supports AGE 1.6 since January 2026 (allowlist via `azure.extensions` server parameter).
+- **Postgres 16** running locally with both extensions installed:
+  - `pgvector` (https://github.com/pgvector/pgvector) — typically prebuilt for Windows in EnterpriseDB installer extras.
+  - `Apache AGE` 1.6 (https://age.apache.org/) — see "Installing AGE" below; **no native Windows build** exists.
+- For cloud deploy later: **Azure Database for PostgreSQL Flexible Server PG 16** supports AGE 1.6 since January 2026 (allowlist via `azure.extensions` server parameter — managed install, no manual build needed).
+
+### Installing AGE on Windows
+
+Apache AGE has no official Windows binaries. The Docker image is the upstream "supported" path, but per project convention we don't use Docker for local services. Two viable options on Windows:
+
+**Option A — WSL2 + Linux Postgres (recommended for local dev).**
+
+WSL2 ships a Linux kernel via Microsoft's hypervisor; Postgres + AGE compile against it cleanly. The .NET app on Windows connects to `localhost` and WSL2 forwards the port automatically.
+
+```powershell
+wsl --install -d Ubuntu-24.04
+wsl -d Ubuntu-24.04 -- bash -lc '
+  sudo apt update &&
+  sudo apt install -y postgresql-16 postgresql-server-dev-16 build-essential git &&
+  cd /tmp &&
+  git clone https://github.com/apache/age.git &&
+  cd age && git checkout release/PG16/1.6.0 &&
+  make PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config &&
+  sudo make PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config install
+'
+```
+
+Then add to `/etc/postgresql/16/main/postgresql.conf` inside WSL: `shared_preload_libraries = ''age''`, restart Postgres, allow connections from Windows in `pg_hba.conf` (`host all all 0.0.0.0/0 scram-sha-256`), and use `Host=localhost;Port=5432` from the .NET app.
+
+**Option B — build AGE on native Windows MSVC (advanced).**
+
+Use Postgres install dev headers (`include/server/`), Visual Studio MSVC, and adapt the AGE Makefile — community guides exist but it's not officially supported. Skip unless you specifically want to avoid WSL.
+
+**Option C — defer the graph layer.**
+
+If you want to start without AGE, set `Storage:GraphName` to empty and the storage layer's `IGraphContext` calls will fail loudly. Vector search and Reflection will still work because they don't touch AGE. Entity / Edge persistence and `get_entity` / search-with-related-entities will throw until AGE is set up.
 
 ---
 

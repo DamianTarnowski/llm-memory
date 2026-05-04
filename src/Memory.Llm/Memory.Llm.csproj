@@ -10,6 +10,8 @@
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
     <PackageReference Include="Azure.AI.OpenAI" />
     <PackageReference Include="OpenAI" />
+    <PackageReference Include="Anthropic.SDK" />
+    <PackageReference Include="AWSSDK.BedrockRuntime" />
   </ItemGroup>
 
 </Project>

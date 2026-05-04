@@ -10,6 +10,7 @@ using Microsoft.Extensions.Hosting;
 
 var builder = Host.CreateApplicationBuilder(args);
 
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 builder.Configuration.AddEnvironmentVariables(prefix: "MEMORY_");
 
 builder.Services.AddOptions<StdioTenantOptions>()

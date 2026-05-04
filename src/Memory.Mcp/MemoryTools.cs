@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Memory.Pipeline;
+using Memory.Pipeline.Reflection;
 using Memory.Storage;
 using Memory.Tenancy;
 using ModelContextProtocol.Server;
@@ -57,6 +58,26 @@ public static class MemoryTools
             result.TotalCandidates);
     }
 
+    [McpServerTool(Name = "reflect")]
+    [Description("Synthesize recent notes into a reflection (key themes, tensions, actionable insights). " +
+                 "Stored as a Reflection record and returned as a summary string.")]
+    public static async Task<ReflectMemoryResponse> ReflectAsync(
+        IReflectionPipeline pipeline,
+        ITenantContext tenant,
+        [Description("Logical scope label, e.g. 'recent', 'weekly', 'project-X'.")] string scope = "recent",
+        [Description("Maximum number of notes to consider (default 30).")] int maxNotes = 30,
+        CancellationToken ct = default)
+    {
+        _ = tenant.Require();
+
+        var result = await pipeline.ReflectAsync(new ReflectionRequest(scope, maxNotes), ct);
+        return new ReflectMemoryResponse(
+            result.Id.ToString(),
+            result.Scope,
+            result.Summary,
+            result.NotesConsidered);
+    }
+
     [McpServerTool(Name = "get_entity")]
     [Description("Fetch a single entity by canonical name and its 1-hop neighbours in the knowledge graph " +
                  "(both outgoing and incoming edges). Returns null if not found.")]
@@ -98,6 +119,12 @@ public sealed record SaveEpisodeResponse(
     string EpisodeId,
     IReadOnlyList<string> NoteIds,
     IReadOnlyList<string> EntityIds);
+
+public sealed record ReflectMemoryResponse(
+    string ReflectionId,
+    string Scope,
+    string Summary,
+    int NotesConsidered);
 
 public sealed record SearchMemoryHit(
     string NoteId,
