@@ -15,6 +15,10 @@ internal sealed class LlmExtractor(ILlmGateway llm) : IExtractor
         - 0-5 tags: broad categories, lowercase, hyphen-separated if multi-word.
         - All entities mentioned (people, projects, concepts, places, organizations) with kind + attributes.
         - Relationships between entities (e.g. WORKS_AT, MENTIONS, AUTHORED, KNOWS, USES) with optional properties.
+        - supersedesPriorEdges: when the input states that a previously-true relation no longer holds
+          (e.g. "X used to work at Y, now works at Z" -> mark X-WORKS_AT-Y as superseded;
+           "She moved from London to Tokyo" -> mark her-LIVES_IN-london as superseded). List the OLD
+          (from, to, relation) triples here. Skip when there's no past-vs-present contrast.
 
         Use canonical entity names (lowercase, hyphen-separated for multi-word).
 

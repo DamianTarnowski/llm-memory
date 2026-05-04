@@ -99,6 +99,26 @@ internal sealed class SimpleIngestionPipeline(
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
 
+        // Bi-temporal: invalidate any prior edges the LLM marked as superseded by this episode.
+        // Resolve entity ids from local map first, fall back to graph lookup for older entities.
+        if (extraction.SupersedesPriorEdges is { Count: > 0 } supersedes)
+        {
+            foreach (var s in supersedes)
+            {
+                if (string.IsNullOrWhiteSpace(s.From) || string.IsNullOrWhiteSpace(s.To) || string.IsNullOrWhiteSpace(s.Relation)) continue;
+
+                var fromId = await ResolveEntityIdAsync(s.From, entityMap, scope.Project, ct).ConfigureAwait(false);
+                var toId = await ResolveEntityIdAsync(s.To, entityMap, scope.Project, ct).ConfigureAwait(false);
+                if (fromId is null || toId is null) continue;
+
+                var existing = await graph.GetEdgesAsync(scope.Project, from: fromId, to: toId, relation: s.Relation, ct: ct).ConfigureAwait(false);
+                foreach (var e in existing.Where(e => e.InvalidatedAt is null))
+                {
+                    await graph.InvalidateEdgeAsync(e.Id, now, ct).ConfigureAwait(false);
+                }
+            }
+        }
+
         foreach (var ext in extraction.Relationships)
         {
             if (!entityMap.TryGetValue(ext.From, out var fromId)) continue;
@@ -140,5 +160,16 @@ internal sealed class SimpleIngestionPipeline(
             episode.Id,
             [note.Id],
             entityMap.Values.ToList());
+    }
+
+    private async Task<EntityId?> ResolveEntityIdAsync(
+        string name,
+        Dictionary<string, EntityId> entityMap,
+        ProjectId project,
+        CancellationToken ct)
+    {
+        if (entityMap.TryGetValue(name, out var id)) return id;
+        var existing = await graph.GetEntitiesAsync(project, nameFilter: name, limit: 1, ct).ConfigureAwait(false);
+        return existing.Count > 0 ? existing[0].Id : null;
     }
 }

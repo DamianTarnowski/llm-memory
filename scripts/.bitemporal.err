@@ -1,0 +1,66 @@
+info: ModelContextProtocol.Server.StdioServerTransport[857250842]
+      Server (stream) (Memory.Mcp.Stdio) transport reading messages.
+info: Memory.Pipeline.Reflection.ReflectionBackgroundService[0]
+      Reflection background service is disabled (set ReflectionSchedule:Enabled=true to turn on).
+info: ModelContextProtocol.Server.McpServer[570385771]
+      Server (Memory.Mcp.Stdio 1.0.0.0) method 'initialize' request handler called.
+info: ModelContextProtocol.Server.McpServer[1867955179]
+      Server (Memory.Mcp.Stdio 1.0.0.0), Client (t 1) method 'initialize' request handler completed in 14.311ms.
+info: ModelContextProtocol.Server.McpServer[570385771]
+      Server (Memory.Mcp.Stdio 1.0.0.0), Client (t 1) method 'tools/call' request handler called.
+warn: Microsoft.EntityFrameworkCore.Model.Validation[10620]
+      The property 'Episode.Metadata' is a collection or enumeration type with a value converter but with no value comparer. Set a value comparer to ensure the collection/enumeration elements are compared correctly.
+warn: Microsoft.EntityFrameworkCore.Model.Validation[10620]
+      The property 'NoteEmbedding.Embedding' is a collection or enumeration type with a value converter but with no value comparer. Set a value comparer to ensure the collection/enumeration elements are compared correctly.
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (127ms) [Parameters=[@p0='?' (DbType = Guid), @p1='?', @p2='?' (DbType = DateTime), @p3='?' (DbType = Object), @p4='?' (DbType = DateTime), @p5='?' (DbType = Guid), @p6='?', @p7='?' (DbType = Guid), @p8='?', @p9='?', @p10='?' (DbType = DateTime), @p11='?' (DbType = Object), @p12='?' (DbType = Guid), @p13='?' (DbType = Guid), @p14='?' (DbType = DateTime), @p15='?' (DbType = Object), @p16='?' (DbType = Guid), @p17='?' (DbType = DateTime), @p18='?' (DbType = Int32), @p19='?' (DbType = Object), @p20='?', @p21='?' (DbType = Guid)], CommandType='Text', CommandTimeout='30']
+      INSERT INTO memory.episodes (id, content, ingested_at, metadata, occurred_at, project_id, source)
+      VALUES (@p0, @p1, @p2, @p3, @p4, @p5, @p6);
+      INSERT INTO memory.notes (id, content, context_description, created_at, keywords, project_id, source_episode_id, superseded_at, tags)
+      VALUES (@p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15);
+      INSERT INTO memory.note_embeddings (note_id, created_at, dimensions, embedding, embedding_model, project_id)
+      VALUES (@p16, @p17, @p18, @p19, @p20, @p21);
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[@p0='?' (DbType = Guid), @p1='?' (DbType = Guid), @p2='?' (DbType = DateTime), @p3='?' (DbType = Guid), @p4='?' (DbType = Guid), @p5='?' (DbType = Guid), @p6='?' (DbType = DateTime), @p7='?' (DbType = Guid), @p8='?' (DbType = Guid), @p9='?' (DbType = Guid), @p10='?' (DbType = DateTime), @p11='?' (DbType = Guid)], CommandType='Text', CommandTimeout='30']
+      INSERT INTO memory.note_entity_mentions (entity_id, note_id, created_at, project_id)
+      VALUES (@p0, @p1, @p2, @p3);
+      INSERT INTO memory.note_entity_mentions (entity_id, note_id, created_at, project_id)
+      VALUES (@p4, @p5, @p6, @p7);
+      INSERT INTO memory.note_entity_mentions (entity_id, note_id, created_at, project_id)
+      VALUES (@p8, @p9, @p10, @p11);
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[@noteId='?' (DbType = Guid)], CommandType='Text', CommandTimeout='30']
+      SELECT n.content AS "Content", n.context_description AS "ContextDescription"
+      FROM memory.notes AS n
+      WHERE n.id = @noteId
+      LIMIT 1
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (2ms) [Parameters=[@_8__locals1_noteId='?' (DbType = Guid), @candidateId='?' (DbType = Guid)], CommandType='Text', CommandTimeout='30']
+      SELECT n.note_id, n.related_note_id, n.confidence, n.created_at, n.description, n.project_id, n.relation_type, n.similarity
+      FROM memory.note_relations AS n
+      WHERE n.note_id = @_8__locals1_noteId AND n.related_note_id = @candidateId
+      LIMIT 1
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[@_8__locals1_noteId='?' (DbType = Guid), @candidateId='?' (DbType = Guid)], CommandType='Text', CommandTimeout='30']
+      SELECT n.note_id, n.related_note_id, n.confidence, n.created_at, n.description, n.project_id, n.relation_type, n.similarity
+      FROM memory.note_relations AS n
+      WHERE n.note_id = @_8__locals1_noteId AND n.related_note_id = @candidateId
+      LIMIT 1
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (2ms) [Parameters=[@p0='?' (DbType = Guid), @p1='?' (DbType = Guid), @p2='?' (DbType = Double), @p3='?' (DbType = DateTime), @p4='?', @p5='?' (DbType = Guid), @p6='?', @p7='?' (DbType = Double), @p8='?' (DbType = Guid), @p9='?' (DbType = Guid), @p10='?' (DbType = Double), @p11='?' (DbType = DateTime), @p12='?', @p13='?' (DbType = Guid), @p14='?', @p15='?' (DbType = Double)], CommandType='Text', CommandTimeout='30']
+      INSERT INTO memory.note_relations (note_id, related_note_id, confidence, created_at, description, project_id, relation_type, similarity)
+      VALUES (@p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7);
+      INSERT INTO memory.note_relations (note_id, related_note_id, confidence, created_at, description, project_id, relation_type, similarity)
+      VALUES (@p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15);
+info: Memory.Pipeline.Ingestion.SimpleIngestionPipeline[0]
+      Linked note 7c5c9e65-08b1-4555-84cd-6d3382922dc5 to 2 related notes via A-MEM auto-linker.
+info: ModelContextProtocol.Server.McpServer[2065726448]
+      "save_episode" completed. IsError = False.
+info: ModelContextProtocol.Server.McpServer[1867955179]
+      Server (Memory.Mcp.Stdio 1.0.0.0), Client (t 1) method 'tools/call' request handler completed in 10792.3113ms.
+info: ModelContextProtocol.Server.StdioServerTransport[1221292038]
+      Server (stream) (Memory.Mcp.Stdio) transport completed reading messages.
+info: ModelContextProtocol.Server.StdioServerTransport[1375634372]
+      Server (stream) (Memory.Mcp.Stdio) shutting down.
+info: ModelContextProtocol.Server.StdioServerTransport[1256455528]
+      Server (stream) (Memory.Mcp.Stdio) shut down.
