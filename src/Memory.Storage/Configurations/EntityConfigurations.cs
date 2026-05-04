@@ -228,6 +228,25 @@ internal sealed class ReflectionConfiguration : IEntityTypeConfiguration<Reflect
     }
 }
 
+internal sealed class TenantSchemaConfiguration : IEntityTypeConfiguration<TenantSchema>
+{
+    public void Configure(EntityTypeBuilder<TenantSchema> b)
+    {
+        b.ToTable("tenant_schemas");
+        b.HasKey(t => t.Organization);
+        b.Property(t => t.Organization).HasColumnName("organization_id");
+        b.Property(t => t.SchemaName).HasColumnName("schema_name").HasMaxLength(63).IsRequired();
+        b.Property(t => t.Status).HasColumnName("status").HasConversion<short>();
+        b.Property(t => t.CreatedAt).HasColumnName("created_at");
+        b.Property(t => t.ActivatedAt).HasColumnName("activated_at");
+        b.HasIndex(t => t.SchemaName).IsUnique();
+
+        b.HasOne<Organization>().WithMany()
+            .HasForeignKey(t => t.Organization)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
 internal sealed class ApiKeyConfiguration : IEntityTypeConfiguration<ApiKey>
 {
     public void Configure(EntityTypeBuilder<ApiKey> b)

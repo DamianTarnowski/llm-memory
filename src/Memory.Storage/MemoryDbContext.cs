@@ -18,6 +18,7 @@ public sealed class MemoryDbContext(DbContextOptions<MemoryDbContext> options) :
     public DbSet<NoteRelation> NoteRelations => Set<NoteRelation>();
     public DbSet<Reflection> Reflections => Set<Reflection>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<TenantSchema> TenantSchemas => Set<TenantSchema>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {

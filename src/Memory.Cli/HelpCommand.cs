@@ -12,6 +12,9 @@ internal static class HelpCommand
               init       Seed a fresh organization / user / project tenant scope into a clean database
                             and emit the matching Tenant config block for Memory.Mcp.Stdio.
               api-key    Manage Memory.Api bearer-token API keys (create/list/revoke).
+              backup     Dump or restore tenant data (notes, episodes, embeddings, edges, reflections).
+              chat       Conversational REPL against the search pipeline.
+              tenants    Schema-per-org foundation: provision / list / drop tenant schemas.
 
             Examples:
               memory init \

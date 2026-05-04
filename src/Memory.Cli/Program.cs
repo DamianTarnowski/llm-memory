@@ -12,5 +12,6 @@ return args[0] switch
     "api-key" => await ApiKeyCommand.RunAsync(args[1..]).ConfigureAwait(false),
     "backup" => await BackupCommand.RunAsync(args[1..]).ConfigureAwait(false),
     "chat" => await ChatCommand.RunAsync(args[1..]).ConfigureAwait(false),
+    "tenants" => await TenantsCommand.RunAsync(args[1..]).ConfigureAwait(false),
     _ => HelpCommand.Unknown(args[0]),
 };
