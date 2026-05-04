@@ -1,5 +1,6 @@
 using System.Data;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Memory.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -18,26 +19,18 @@ internal sealed class AgeGraphContext(MemoryDbContext db, IOptions<StorageOption
         int limit = 50,
         CancellationToken ct = default)
     {
-        const string cypher = """
-            MATCH (n:Entity {project_id: $project_id})
-            WHERE $name IS NULL OR toLower(n.name) CONTAINS toLower($name)
-            RETURN n.id AS id,
-                   n.name AS name,
-                   n.kind AS kind,
-                   n.first_seen_at AS first_seen_at,
-                   n.last_seen_at AS last_seen_at,
-                   n.attributes AS attributes
-            LIMIT $limit
+        var nameClause = nameFilter is null
+            ? string.Empty
+            : $"WHERE toLower(n.name) CONTAINS toLower({CypherStr(nameFilter)})";
+
+        var cypher = $$"""
+            MATCH (n:Entity {project_id: {{CypherStr(project.Value.ToString("D"))}}})
+            {{nameClause}}
+            RETURN n.id, n.name, n.kind, n.first_seen_at, n.last_seen_at, n.attributes
+            LIMIT {{limit}}
             """;
 
-        var parameters = new Dictionary<string, object?>
-        {
-            ["project_id"] = project.Value.ToString("D"),
-            ["name"] = nameFilter,
-            ["limit"] = limit,
-        };
-
-        var rows = await QueryAsync(cypher, parameters, columnCount: 6, ct).ConfigureAwait(false);
+        var rows = await QueryAsync(cypher, columnCount: 6, ct).ConfigureAwait(false);
 
         var entities = new List<Entity>(rows.Count);
         foreach (var row in rows)
@@ -64,38 +57,29 @@ internal sealed class AgeGraphContext(MemoryDbContext db, IOptions<StorageOption
         DateTimeOffset? validAt = null,
         CancellationToken ct = default)
     {
-        const string cypher = """
-            MATCH (a:Entity {project_id: $project_id})-[r:Edge {project_id: $project_id}]->(b:Entity {project_id: $project_id})
-            WHERE ($from IS NULL OR a.id = $from)
-              AND ($to IS NULL OR b.id = $to)
-              AND ($relation IS NULL OR r.relation = $relation)
-              AND ($valid_at IS NULL OR (
-                  (r.valid_from IS NULL OR r.valid_from <= $valid_at)
-                  AND (r.valid_to IS NULL OR r.valid_to > $valid_at)
-                  AND r.invalidated_at IS NULL
-              ))
-            RETURN r.id AS id,
-                   a.id AS from_id,
-                   b.id AS to_id,
-                   r.relation AS relation,
-                   r.recorded_at AS recorded_at,
-                   r.valid_from AS valid_from,
-                   r.valid_to AS valid_to,
-                   r.invalidated_at AS invalidated_at,
-                   r.source_episode AS source_episode,
-                   r.properties AS properties
+        var conditions = new List<string>();
+        if (from is { } f) conditions.Add($"a.id = {CypherStr(f.Value.ToString("D"))}");
+        if (to is { } t) conditions.Add($"b.id = {CypherStr(t.Value.ToString("D"))}");
+        if (relation is not null) conditions.Add($"r.relation = {CypherStr(relation)}");
+        if (validAt is { } va)
+        {
+            var ts = CypherStr(va.ToString("o", CultureInfo.InvariantCulture));
+            conditions.Add($"(r.valid_from IS NULL OR r.valid_from <= {ts})");
+            conditions.Add($"(r.valid_to IS NULL OR r.valid_to > {ts})");
+            conditions.Add("r.invalidated_at IS NULL");
+        }
+        var whereClause = conditions.Count == 0
+            ? string.Empty
+            : "WHERE " + string.Join(" AND ", conditions);
+
+        var pid = CypherStr(project.Value.ToString("D"));
+        var cypher = $$"""
+            MATCH (a:Entity {project_id: {{pid}}})-[r:Edge {project_id: {{pid}}}]->(b:Entity {project_id: {{pid}}})
+            {{whereClause}}
+            RETURN r.id, a.id, b.id, r.relation, r.recorded_at, r.valid_from, r.valid_to, r.invalidated_at, r.source_episode, r.properties
             """;
 
-        var parameters = new Dictionary<string, object?>
-        {
-            ["project_id"] = project.Value.ToString("D"),
-            ["from"] = from?.Value.ToString("D"),
-            ["to"] = to?.Value.ToString("D"),
-            ["relation"] = relation,
-            ["valid_at"] = validAt?.ToString("o", CultureInfo.InvariantCulture),
-        };
-
-        var rows = await QueryAsync(cypher, parameters, columnCount: 10, ct).ConfigureAwait(false);
+        var rows = await QueryAsync(cypher, columnCount: 10, ct).ConfigureAwait(false);
 
         var edges = new List<Edge>(rows.Count);
         foreach (var row in rows)
@@ -126,97 +110,64 @@ internal sealed class AgeGraphContext(MemoryDbContext db, IOptions<StorageOption
         DateTimeOffset seenAt,
         CancellationToken ct = default)
     {
-        const string cypher = """
-            MERGE (n:Entity {project_id: $project_id, name: $name})
-            ON CREATE SET n.id = $new_id, n.first_seen_at = $now
-            SET n.last_seen_at = $now,
-                n.kind = $kind,
-                n.attributes = $attributes
+        var newId = Guid.NewGuid().ToString("D");
+        var now = seenAt.ToString("o", CultureInfo.InvariantCulture);
+        // AGE 1.6 does not support ON CREATE SET / ON MATCH SET — emulate with COALESCE
+        // so id and first_seen_at are preserved on existing nodes.
+        var cypher = $$"""
+            MERGE (n:Entity {project_id: {{CypherStr(project.Value.ToString("D"))}}, name: {{CypherStr(name)}}})
+            SET n.id = COALESCE(n.id, {{CypherStr(newId)}}),
+                n.first_seen_at = COALESCE(n.first_seen_at, {{CypherStr(now)}}),
+                n.last_seen_at = {{CypherStr(now)}},
+                n.kind = {{CypherStr(kind)}},
+                n.attributes = {{CypherMap(attributes)}}
             RETURN n.id
             """;
 
-        var parameters = new Dictionary<string, object?>
-        {
-            ["project_id"] = project.Value.ToString("D"),
-            ["name"] = name,
-            ["new_id"] = Guid.NewGuid().ToString("D"),
-            ["kind"] = kind,
-            ["attributes"] = attributes,
-            ["now"] = seenAt.ToString("o", CultureInfo.InvariantCulture),
-        };
-
-        var raw = await ExecuteScalarAsync(cypher, parameters, ct).ConfigureAwait(false);
+        var raw = await ExecuteScalarAsync(cypher, ct).ConfigureAwait(false);
         return new EntityId(ReadGuid(raw));
     }
 
     public async Task AddEdgeAsync(Edge edge, CancellationToken ct = default)
     {
-        const string cypher = """
-            MATCH (a:Entity {id: $from_id, project_id: $project_id})
-            MATCH (b:Entity {id: $to_id, project_id: $project_id})
+        var pid = CypherStr(edge.Project.Value.ToString("D"));
+        var cypher = $$"""
+            MATCH (a:Entity {id: {{CypherStr(edge.From.Value.ToString("D"))}}, project_id: {{pid}}})
+            MATCH (b:Entity {id: {{CypherStr(edge.To.Value.ToString("D"))}}, project_id: {{pid}}})
             CREATE (a)-[r:Edge {
-                id: $edge_id,
-                project_id: $project_id,
-                relation: $relation,
-                recorded_at: $recorded_at,
-                valid_from: $valid_from,
-                valid_to: $valid_to,
+                id: {{CypherStr(edge.Id.Value.ToString("D"))}},
+                project_id: {{pid}},
+                relation: {{CypherStr(edge.Relation)}},
+                recorded_at: {{CypherStr(edge.RecordedAt.ToString("o", CultureInfo.InvariantCulture))}},
+                valid_from: {{CypherOptStr(edge.ValidFrom?.ToString("o", CultureInfo.InvariantCulture))}},
+                valid_to: {{CypherOptStr(edge.ValidTo?.ToString("o", CultureInfo.InvariantCulture))}},
                 invalidated_at: null,
-                source_episode: $source_episode,
-                properties: $properties
+                source_episode: {{CypherOptStr(edge.SourceEpisode?.Value.ToString("D"))}},
+                properties: {{CypherMap(edge.Properties)}}
             }]->(b)
             RETURN r.id
             """;
 
-        var parameters = new Dictionary<string, object?>
-        {
-            ["edge_id"] = edge.Id.Value.ToString("D"),
-            ["project_id"] = edge.Project.Value.ToString("D"),
-            ["from_id"] = edge.From.Value.ToString("D"),
-            ["to_id"] = edge.To.Value.ToString("D"),
-            ["relation"] = edge.Relation,
-            ["recorded_at"] = edge.RecordedAt.ToString("o", CultureInfo.InvariantCulture),
-            ["valid_from"] = edge.ValidFrom?.ToString("o", CultureInfo.InvariantCulture),
-            ["valid_to"] = edge.ValidTo?.ToString("o", CultureInfo.InvariantCulture),
-            ["source_episode"] = edge.SourceEpisode?.Value.ToString("D"),
-            ["properties"] = edge.Properties,
-        };
-
-        await ExecuteAsync(cypher, parameters, returnColumn: "id", ct).ConfigureAwait(false);
+        await ExecuteAsync(cypher, ct).ConfigureAwait(false);
     }
 
     public async Task InvalidateEdgeAsync(EdgeId id, DateTimeOffset at, CancellationToken ct = default)
     {
-        const string cypher = """
-            MATCH ()-[r:Edge {id: $edge_id}]->()
-            SET r.invalidated_at = $at
+        var cypher = $$"""
+            MATCH ()-[r:Edge {id: {{CypherStr(id.Value.ToString("D"))}}}]->()
+            SET r.invalidated_at = {{CypherStr(at.ToString("o", CultureInfo.InvariantCulture))}}
             RETURN r.id
             """;
 
-        var parameters = new Dictionary<string, object?>
-        {
-            ["edge_id"] = id.Value.ToString("D"),
-            ["at"] = at.ToString("o", CultureInfo.InvariantCulture),
-        };
-
-        await ExecuteAsync(cypher, parameters, returnColumn: "id", ct).ConfigureAwait(false);
+        await ExecuteAsync(cypher, ct).ConfigureAwait(false);
     }
 
-    private async Task<List<string?[]>> QueryAsync(
-        string cypher,
-        IReadOnlyDictionary<string, object?> parameters,
-        int columnCount,
-        CancellationToken ct)
+    private async Task<List<string?[]>> QueryAsync(string cypher, int columnCount, CancellationToken ct)
     {
         var conn = await OpenConnectionAsync(ct).ConfigureAwait(false);
-        var sql = BuildSql(cypher, hasParams: parameters.Count > 0, columnCount);
+        var sql = BuildSql(cypher, columnCount);
 
         await using var cmd = new NpgsqlCommand(sql, conn);
-        if (parameters.Count > 0)
-        {
-            cmd.Parameters.AddWithValue("params", JsonSerializer.Serialize(parameters, AgtypeParser.JsonOpts.Web));
-        }
-
         var rows = new List<string?[]>();
         await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         while (await reader.ReadAsync(ct).ConfigureAwait(false))
@@ -231,21 +182,12 @@ internal sealed class AgeGraphContext(MemoryDbContext db, IOptions<StorageOption
         return rows;
     }
 
-    private async Task ExecuteAsync(
-        string cypher,
-        IReadOnlyDictionary<string, object?> parameters,
-        string returnColumn,
-        CancellationToken ct)
+    private async Task ExecuteAsync(string cypher, CancellationToken ct)
     {
         var conn = await OpenConnectionAsync(ct).ConfigureAwait(false);
-        var sql = BuildSql(cypher, hasParams: parameters.Count > 0, columnCount: 1);
+        var sql = BuildSql(cypher, columnCount: 1);
 
         await using var cmd = new NpgsqlCommand(sql, conn);
-        if (parameters.Count > 0)
-        {
-            cmd.Parameters.AddWithValue("params", JsonSerializer.Serialize(parameters, AgtypeParser.JsonOpts.Web));
-        }
-
         await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         while (await reader.ReadAsync(ct).ConfigureAwait(false))
         {
@@ -253,20 +195,12 @@ internal sealed class AgeGraphContext(MemoryDbContext db, IOptions<StorageOption
         }
     }
 
-    private async Task<string> ExecuteScalarAsync(
-        string cypher,
-        IReadOnlyDictionary<string, object?> parameters,
-        CancellationToken ct)
+    private async Task<string> ExecuteScalarAsync(string cypher, CancellationToken ct)
     {
         var conn = await OpenConnectionAsync(ct).ConfigureAwait(false);
-        var sql = BuildSql(cypher, hasParams: parameters.Count > 0, columnCount: 1);
+        var sql = BuildSql(cypher, columnCount: 1);
 
         await using var cmd = new NpgsqlCommand(sql, conn);
-        if (parameters.Count > 0)
-        {
-            cmd.Parameters.AddWithValue("params", JsonSerializer.Serialize(parameters, AgtypeParser.JsonOpts.Web));
-        }
-
         await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         if (!await reader.ReadAsync(ct).ConfigureAwait(false))
         {
@@ -286,19 +220,78 @@ internal sealed class AgeGraphContext(MemoryDbContext db, IOptions<StorageOption
         return (NpgsqlConnection)db.Database.GetDbConnection();
     }
 
-    private string BuildSql(string cypher, bool hasParams, int columnCount)
+    private string BuildSql(string cypher, int columnCount)
     {
-        var columns = string.Join(", ", Enumerable.Range(0, columnCount).Select(i => $"col{i} agtype"));
-        return hasParams
-            ? $"SELECT * FROM ag_catalog.cypher('{_options.GraphName}', $cy${cypher}$cy$, @params::jsonb) AS ({columns});"
-            : $"SELECT * FROM ag_catalog.cypher('{_options.GraphName}', $cy${cypher}$cy$) AS ({columns});";
+        // AGE requires `LOAD 'age'` and ag_catalog on search_path each session for its
+        // operator overloads (e.g. @> for MERGE) to resolve. Both are idempotent.
+        // Cast agtype results to text so Npgsql can read them as strings.
+        var declared = string.Join(", ", Enumerable.Range(0, columnCount).Select(i => $"col{i} ag_catalog.agtype"));
+        var projected = string.Join(", ", Enumerable.Range(0, columnCount).Select(i => $"col{i}::text"));
+        return $"""
+            LOAD 'age';
+            SET search_path = ag_catalog, "$user", public;
+            SELECT {projected} FROM ag_catalog.cypher('{_options.GraphName}', $cy${cypher}$cy$) AS ({declared});
+            """;
+    }
+
+    private static string CypherStr(string value)
+    {
+        var sb = new StringBuilder(value.Length + 4);
+        sb.Append('\'');
+        foreach (var c in value)
+        {
+            switch (c)
+            {
+                case '\'': sb.Append("\\'"); break;
+                case '\\': sb.Append("\\\\"); break;
+                case '\n': sb.Append("\\n"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\t': sb.Append("\\t"); break;
+                default: sb.Append(c); break;
+            }
+        }
+        sb.Append('\'');
+        return sb.ToString();
+    }
+
+    private static string CypherOptStr(string? value) => value is null ? "null" : CypherStr(value);
+
+    private static string CypherMap(IReadOnlyDictionary<string, string> attributes)
+    {
+        if (attributes.Count == 0) return "{}";
+        var sb = new StringBuilder("{");
+        var first = true;
+        foreach (var kv in attributes)
+        {
+            if (!first) sb.Append(", ");
+            sb.Append(EscapeMapKey(kv.Key)).Append(": ").Append(CypherStr(kv.Value));
+            first = false;
+        }
+        sb.Append('}');
+        return sb.ToString();
+    }
+
+    private static string EscapeMapKey(string key)
+    {
+        // Cypher map keys are identifiers; if the key isn't a valid identifier wrap in backticks.
+        if (key.Length == 0) return "``";
+        var clean = true;
+        for (var i = 0; i < key.Length; i++)
+        {
+            var c = key[i];
+            if (i == 0 ? !char.IsLetter(c) && c != '_' : !char.IsLetterOrDigit(c) && c != '_')
+            {
+                clean = false;
+                break;
+            }
+        }
+        return clean ? key : "`" + key.Replace("`", "``") + "`";
     }
 
     private static Guid ReadGuid(string? raw)
     {
         if (raw is null) throw new InvalidOperationException("Expected non-null Guid agtype value.");
-        var s = TrimAgtypeString(raw);
-        return Guid.Parse(s, CultureInfo.InvariantCulture);
+        return Guid.Parse(TrimAgtypeString(raw), CultureInfo.InvariantCulture);
     }
 
     private static string ReadString(string? raw)

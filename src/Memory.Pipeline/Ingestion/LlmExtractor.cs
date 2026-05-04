@@ -29,6 +29,17 @@ internal sealed class LlmExtractor(ILlmGateway llm) : IExtractor
         };
 
         var response = await llm.GetChat().GetResponseAsync<ExtractionResult>(messages, cancellationToken: ct).ConfigureAwait(false);
+
+        if (response.Result is null || response.Result.Note is null)
+        {
+            var raw = response.Text ?? "(no text content in response)";
+            var preview = raw.Length > 800 ? raw[..800] + "..." : raw;
+            throw new InvalidOperationException(
+                $"LLM did not return a parseable ExtractionResult (Note is null). " +
+                $"Provider may not support strict JSON-schema response_format, or output was malformed. " +
+                $"Raw response preview: {preview}");
+        }
+
         return response.Result;
     }
 }

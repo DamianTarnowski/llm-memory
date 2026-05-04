@@ -1,6 +1,5 @@
+using System.ClientModel;
 using Anthropic.SDK;
-using Azure;
-using Azure.AI.OpenAI;
 using Memory.Llm.Providers;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -74,7 +73,7 @@ internal sealed class LlmGateway(IOptions<LlmOptions> options) : ILlmGateway, ID
         Require(s.ApiKey, "Llm:AzureOpenAi:ApiKey");
         Require(s.ChatDeployment, "Llm:AzureOpenAi:ChatDeployment");
 
-        var client = new AzureOpenAIClient(new Uri(s.Endpoint), new AzureKeyCredential(s.ApiKey));
+        var client = BuildFoundryOpenAiClient(s.Endpoint, s.ApiKey);
         return client.GetChatClient(s.ChatDeployment).AsIChatClient();
     }
 
@@ -94,8 +93,18 @@ internal sealed class LlmGateway(IOptions<LlmOptions> options) : ILlmGateway, ID
         Require(s.ApiKey, "Llm:AzureOpenAi:ApiKey");
         Require(s.EmbeddingDeployment, "Llm:AzureOpenAi:EmbeddingDeployment");
 
-        var client = new AzureOpenAIClient(new Uri(s.Endpoint), new AzureKeyCredential(s.ApiKey));
+        var client = BuildFoundryOpenAiClient(s.Endpoint, s.ApiKey);
         return client.GetEmbeddingClient(s.EmbeddingDeployment).AsIEmbeddingGenerator();
+    }
+
+    private static OpenAIClient BuildFoundryOpenAiClient(string endpoint, string apiKey)
+    {
+        // Azure AI Foundry exposes the new OpenAI-compatible v1 API at /openai/v1.
+        // Body uses {model: "..."} (not deployment-routed URL). Auth: api-key header.
+        // OpenAI SDK 2.x sends Authorization: Bearer; Foundry v1 accepts both.
+        var v1 = new Uri(endpoint.TrimEnd('/') + "/openai/v1");
+        var options = new OpenAIClientOptions { Endpoint = v1 };
+        return new OpenAIClient(new ApiKeyCredential(apiKey), options);
     }
 
     private IEmbeddingGenerator<string, Embedding<float>> CreateOpenAiEmbeddings()
