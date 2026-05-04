@@ -46,9 +46,12 @@ Thumbs.db
 .DS_Store
 desktop.ini
 
-# smoke-test artifacts
+# smoke-test / stress-test artifacts
 scripts/.smoke-*
 scripts/.dbg-*
+scripts/.stress-*
+scripts/.api-*
+scripts/.web-*
 
 # Blazor WASM publish
 wwwroot/dist/
