@@ -15,7 +15,8 @@ internal sealed class HybridSearchPipeline(
     ITenantContext tenant,
     MemoryDbContext db,
     ILlmGateway llm,
-    IReranker reranker) : ISearchPipeline
+    IReranker reranker,
+    IGraphRetriever graphRetriever) : ISearchPipeline
 {
     private const int CandidateMultiplier = 4;     // pull 4× max from each retriever before fusion
     private const int RrfK = 60;                    // standard RRF constant
@@ -42,10 +43,17 @@ internal sealed class HybridSearchPipeline(
         }
         var conn = (NpgsqlConnection)db.Database.GetDbConnection();
 
+        // Sequential retrieval — all three retrievers share the same DbContext / NpgsqlConnection
+        // so they cannot run in parallel ("a command is already in progress").
         var vectorHits = await VectorSearchAsync(conn, queryVector, request, candidateLimit, ct).ConfigureAwait(false);
         var bm25Hits = await Bm25SearchAsync(conn, request, candidateLimit, ct).ConfigureAwait(false);
+        var graphRaw = await graphRetriever.RetrieveAsync(request.Query, candidateLimit, ct).ConfigureAwait(false);
 
-        var fused = FuseRrf(vectorHits, bm25Hits, RrfK);
+        var graphHits = graphRaw
+            .Select((h, i) => new RankedHit(h.NoteId, h.Content, i + 1, 1.0 - h.Score, h.RelatedEntities, FromVector: false, FromBm25: false))
+            .ToList();
+
+        var fused = FuseRrf(vectorHits, bm25Hits, graphHits, RrfK);
 
         var reranked = await reranker.RerankAsync(request.Query, fused, ct).ConfigureAwait(false);
         var top = reranked.Take(request.MaxResults).ToList();
@@ -161,59 +169,57 @@ internal sealed class HybridSearchPipeline(
     }
 
     /// <summary>
-    /// Reciprocal Rank Fusion. Each input list is ranked 1..N. A note's RRF score is the sum
-    /// of 1/(k + rank_in_each_list_it_appears_in). Hits appearing in both lists get boosted.
+    /// Reciprocal Rank Fusion across three retrievers (vector, BM25, graph PPR).
+    /// A note's RRF score is the sum of 1/(k + rank_in_each_list_it_appears_in).
+    /// Hits found by multiple retrievers stack contributions — that's the whole point.
     /// </summary>
-    private static List<SearchHit> FuseRrf(List<RankedHit> vector, List<RankedHit> bm25, int k)
+    private static List<SearchHit> FuseRrf(List<RankedHit> vector, List<RankedHit> bm25, List<RankedHit> graph, int k)
     {
         var pool = new Dictionary<NoteId, FusedHit>();
 
-        foreach (var h in vector)
-        {
-            var contribution = 1.0 / (k + h.Rank);
-            if (pool.TryGetValue(h.NoteId, out var existing))
-            {
-                existing.RrfScore += contribution;
-                existing.FromVector = true;
-            }
-            else
-            {
-                pool[h.NoteId] = new FusedHit
-                {
-                    NoteId = h.NoteId,
-                    Content = h.Content,
-                    Related = h.Related,
-                    RrfScore = contribution,
-                    FromVector = true,
-                };
-            }
-        }
-
-        foreach (var h in bm25)
-        {
-            var contribution = 1.0 / (k + h.Rank);
-            if (pool.TryGetValue(h.NoteId, out var existing))
-            {
-                existing.RrfScore += contribution;
-                existing.FromBm25 = true;
-            }
-            else
-            {
-                pool[h.NoteId] = new FusedHit
-                {
-                    NoteId = h.NoteId,
-                    Content = h.Content,
-                    Related = h.Related,
-                    RrfScore = contribution,
-                    FromBm25 = true,
-                };
-            }
-        }
+        Add(pool, vector, k, fromVector: true);
+        Add(pool, bm25, k, fromBm25: true);
+        Add(pool, graph, k, fromGraph: true);
 
         return pool.Values
             .OrderByDescending(f => f.RrfScore)
             .Select(f => new SearchHit(f.NoteId, f.Content, f.RrfScore, f.Related))
             .ToList();
+    }
+
+    private static void Add(
+        Dictionary<NoteId, FusedHit> pool,
+        List<RankedHit> hits,
+        int k,
+        bool fromVector = false,
+        bool fromBm25 = false,
+        bool fromGraph = false)
+    {
+        foreach (var h in hits)
+        {
+            var contribution = 1.0 / (k + h.Rank);
+            if (pool.TryGetValue(h.NoteId, out var existing))
+            {
+                existing.RrfScore += contribution;
+                if (fromVector) existing.FromVector = true;
+                if (fromBm25) existing.FromBm25 = true;
+                if (fromGraph) existing.FromGraph = true;
+                if (existing.Related.Length == 0 && h.Related.Length > 0) existing.Related = h.Related;
+            }
+            else
+            {
+                pool[h.NoteId] = new FusedHit
+                {
+                    NoteId = h.NoteId,
+                    Content = h.Content,
+                    Related = h.Related,
+                    RrfScore = contribution,
+                    FromVector = fromVector,
+                    FromBm25 = fromBm25,
+                    FromGraph = fromGraph,
+                };
+            }
+        }
     }
 
     private sealed record RankedHit(
@@ -229,9 +235,10 @@ internal sealed class HybridSearchPipeline(
     {
         public required NoteId NoteId { get; init; }
         public required string Content { get; init; }
-        public required EntityId[] Related { get; init; }
+        public EntityId[] Related { get; set; } = Array.Empty<EntityId>();
         public double RrfScore { get; set; }
         public bool FromVector { get; set; }
         public bool FromBm25 { get; set; }
+        public bool FromGraph { get; set; }
     }
 }

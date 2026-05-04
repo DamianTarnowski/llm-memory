@@ -23,9 +23,13 @@ public static class PipelineServiceCollectionExtensions
         services.AddOptions<RerankerOptions>()
             .Bind(configuration.GetSection(RerankerOptions.SectionName));
 
+        services.AddOptions<GraphRetrievalOptions>()
+            .Bind(configuration.GetSection(GraphRetrievalOptions.SectionName));
+
         services.AddScoped<IExtractor, LlmExtractor>();
         services.AddScoped<INoteLinker, LlmNoteLinker>();
         services.AddScoped<IReranker, LlmReranker>();
+        services.AddScoped<IGraphRetriever, PprGraphRetriever>();
         services.AddScoped<IIngestionPipeline, SimpleIngestionPipeline>();
         services.AddScoped<ISearchPipeline, HybridSearchPipeline>();
         services.AddScoped<IReflectionPipeline, SimpleReflectionPipeline>();
