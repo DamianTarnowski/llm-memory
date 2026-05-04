@@ -23,7 +23,16 @@
     @foreach (var hit in result.Hits)
     {
         <div class="card mb-2 p-3">
-            <div><strong>score:</strong> @hit.Score.ToString("0.000")</div>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <strong>score: @hit.Score.ToString("0.0000")</strong>
+                @if (hit.Provenance is { } p)
+                {
+                    @if (p.FromVector) { <span class="badge bg-primary" title="dense vector match — score @p.VectorScore.ToString("0.0000")">vector</span> }
+                    @if (p.FromBm25) { <span class="badge bg-success" title="BM25 fulltext match — score @p.Bm25Score.ToString("0.0000")">bm25</span> }
+                    @if (p.FromGraph) { <span class="badge bg-info text-dark" title="graph PPR match — score @p.GraphScore.ToString("0.0000")">graph</span> }
+                    @if (p.RerankerScore is { } r) { <span class="badge bg-warning text-dark" title="LLM relevance score">rerank: @r.ToString("0.00")</span> }
+                }
+            </div>
             <div class="mt-1">@hit.Content</div>
             @if (hit.RelatedEntityIds.Length > 0)
             {

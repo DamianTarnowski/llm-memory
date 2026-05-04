@@ -70,7 +70,14 @@ internal sealed class LlmReranker(
                 })
                 .Where(x => x.score >= opts.MinRelevance)
                 .OrderByDescending(x => x.score)
-                .Select(x => new SearchHit(x.hit.NoteId, x.hit.Content, x.score, x.hit.RelatedEntities))
+                .Select(x => new SearchHit(
+                    x.hit.NoteId,
+                    x.hit.Content,
+                    x.score,
+                    x.hit.RelatedEntities,
+                    x.hit.Provenance is { } p
+                        ? p with { RerankerScore = x.score }
+                        : new SearchHitProvenance(false, false, false, 0, 0, 0, x.score)))
                 .ToList();
 
             return reranked.Count > 0 ? reranked : candidates;

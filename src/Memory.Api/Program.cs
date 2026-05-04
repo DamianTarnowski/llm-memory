@@ -145,7 +145,7 @@ app.MapGet("/api/entities", async (IGraphContext graph, ITenantContext tenant, s
 
 app.MapPost("/api/search", async (ISearchPipeline pipeline, SearchPostBody body, CancellationToken ct) =>
 {
-    var result = await pipeline.SearchAsync(new SearchRequest(body.Query, body.MaxResults ?? 20), ct);
+    var result = await pipeline.SearchAsync(new SearchRequest(body.Query, body.MaxResults ?? 20, body.Tags, body.Since, body.Until), ct);
     return Results.Ok(new
     {
         totalCandidates = result.TotalCandidates,
@@ -155,6 +155,16 @@ app.MapPost("/api/search", async (ISearchPipeline pipeline, SearchPostBody body,
             content = h.Content,
             score = h.Score,
             relatedEntityIds = h.RelatedEntities.Select(e => e.Value).ToArray(),
+            provenance = h.Provenance is null ? null : new
+            {
+                fromVector = h.Provenance.FromVector,
+                fromBm25 = h.Provenance.FromBm25,
+                fromGraph = h.Provenance.FromGraph,
+                vectorScore = h.Provenance.VectorScore,
+                bm25Score = h.Provenance.Bm25Score,
+                graphScore = h.Provenance.GraphScore,
+                rerankerScore = h.Provenance.RerankerScore,
+            },
         }),
     });
 });
@@ -163,6 +173,11 @@ app.MapMcp("/mcp");
 
 app.Run();
 
-public sealed record SearchPostBody(string Query, int? MaxResults);
+public sealed record SearchPostBody(
+    string Query,
+    int? MaxResults,
+    IReadOnlyList<string>? Tags = null,
+    DateTimeOffset? Since = null,
+    DateTimeOffset? Until = null);
 
 public partial class Program;

@@ -21,9 +21,23 @@ public sealed class ApiClient(HttpClient http)
         return await http.GetFromJsonAsync<List<EntityDto>>(url, ct) ?? new();
     }
 
-    public async Task<SearchResultDto?> SearchAsync(string query, int maxResults = 10, CancellationToken ct = default)
+    public async Task<SearchResultDto?> SearchAsync(
+        string query,
+        int maxResults = 10,
+        IReadOnlyList<string>? tags = null,
+        DateTimeOffset? since = null,
+        DateTimeOffset? until = null,
+        CancellationToken ct = default)
     {
-        var response = await http.PostAsJsonAsync("api/search", new { query, maxResults }, ct);
+        var body = new
+        {
+            query,
+            maxResults,
+            tags,
+            since,
+            until,
+        };
+        var response = await http.PostAsJsonAsync("api/search", body, ct);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<SearchResultDto>(cancellationToken: ct);
     }
@@ -36,6 +50,14 @@ public sealed record EpisodeDto(Guid Id, string Source, string Content, DateTime
 public sealed record NoteDto(Guid Id, string Content, string ContextDescription, List<string> Keywords, List<string> Tags, DateTimeOffset CreatedAt);
 public sealed record ReflectionDto(Guid Id, string Scope, string Summary, DateTimeOffset GeneratedAt, string GeneratorModel);
 public sealed record EntityDto(Guid Id, string Name, string Kind, Dictionary<string, string> Attributes, DateTimeOffset FirstSeenAt, DateTimeOffset LastSeenAt);
-public sealed record SearchHitDto(Guid NoteId, string Content, double Score, Guid[] RelatedEntityIds);
+public sealed record SearchHitDto(Guid NoteId, string Content, double Score, Guid[] RelatedEntityIds, SearchProvenanceDto? Provenance);
+public sealed record SearchProvenanceDto(
+    bool FromVector,
+    bool FromBm25,
+    bool FromGraph,
+    double VectorScore,
+    double Bm25Score,
+    double GraphScore,
+    double? RerankerScore);
 public sealed record SearchResultDto(int TotalCandidates, List<SearchHitDto> Hits);
 public sealed record EdgeDto(Guid Id, Guid From, Guid To, string Relation, DateTimeOffset RecordedAt, DateTimeOffset? InvalidatedAt);

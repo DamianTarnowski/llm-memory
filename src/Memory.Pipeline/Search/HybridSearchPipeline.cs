@@ -177,47 +177,51 @@ internal sealed class HybridSearchPipeline(
     {
         var pool = new Dictionary<NoteId, FusedHit>();
 
-        Add(pool, vector, k, fromVector: true);
-        Add(pool, bm25, k, fromBm25: true);
-        Add(pool, graph, k, fromGraph: true);
+        Add(pool, vector, k, stream: Stream.Vector);
+        Add(pool, bm25, k, stream: Stream.Bm25);
+        Add(pool, graph, k, stream: Stream.Graph);
 
         return pool.Values
             .OrderByDescending(f => f.RrfScore)
-            .Select(f => new SearchHit(f.NoteId, f.Content, f.RrfScore, f.Related))
+            .Select(f => new SearchHit(
+                f.NoteId, f.Content, f.RrfScore, f.Related,
+                new SearchHitProvenance(
+                    FromVector: f.FromVector,
+                    FromBm25: f.FromBm25,
+                    FromGraph: f.FromGraph,
+                    VectorScore: f.VectorScore,
+                    Bm25Score: f.Bm25Score,
+                    GraphScore: f.GraphScore,
+                    RerankerScore: null)))
             .ToList();
     }
 
-    private static void Add(
-        Dictionary<NoteId, FusedHit> pool,
-        List<RankedHit> hits,
-        int k,
-        bool fromVector = false,
-        bool fromBm25 = false,
-        bool fromGraph = false)
+    private enum Stream { Vector, Bm25, Graph }
+
+    private static void Add(Dictionary<NoteId, FusedHit> pool, List<RankedHit> hits, int k, Stream stream)
     {
         foreach (var h in hits)
         {
             var contribution = 1.0 / (k + h.Rank);
-            if (pool.TryGetValue(h.NoteId, out var existing))
+            if (!pool.TryGetValue(h.NoteId, out var existing))
             {
-                existing.RrfScore += contribution;
-                if (fromVector) existing.FromVector = true;
-                if (fromBm25) existing.FromBm25 = true;
-                if (fromGraph) existing.FromGraph = true;
-                if (existing.Related.Length == 0 && h.Related.Length > 0) existing.Related = h.Related;
-            }
-            else
-            {
-                pool[h.NoteId] = new FusedHit
+                existing = new FusedHit
                 {
                     NoteId = h.NoteId,
                     Content = h.Content,
                     Related = h.Related,
-                    RrfScore = contribution,
-                    FromVector = fromVector,
-                    FromBm25 = fromBm25,
-                    FromGraph = fromGraph,
                 };
+                pool[h.NoteId] = existing;
+            }
+
+            existing.RrfScore += contribution;
+            if (existing.Related.Length == 0 && h.Related.Length > 0) existing.Related = h.Related;
+
+            switch (stream)
+            {
+                case Stream.Vector: existing.FromVector = true; existing.VectorScore = contribution; break;
+                case Stream.Bm25: existing.FromBm25 = true; existing.Bm25Score = contribution; break;
+                case Stream.Graph: existing.FromGraph = true; existing.GraphScore = contribution; break;
             }
         }
     }
@@ -240,5 +244,8 @@ internal sealed class HybridSearchPipeline(
         public bool FromVector { get; set; }
         public bool FromBm25 { get; set; }
         public bool FromGraph { get; set; }
+        public double VectorScore { get; set; }
+        public double Bm25Score { get; set; }
+        public double GraphScore { get; set; }
     }
 }
