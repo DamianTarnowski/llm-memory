@@ -29,10 +29,14 @@ public static class PipelineServiceCollectionExtensions
         services.AddOptions<TimeDecayOptions>()
             .Bind(configuration.GetSection(TimeDecayOptions.SectionName));
 
+        services.AddOptions<QueryExpansionOptions>()
+            .Bind(configuration.GetSection(QueryExpansionOptions.SectionName));
+
         services.AddScoped<IExtractor, LlmExtractor>();
         services.AddScoped<INoteLinker, LlmNoteLinker>();
         services.AddScoped<IReranker, LlmReranker>();
         services.AddScoped<IGraphRetriever, PprGraphRetriever>();
+        services.AddScoped<IQueryExpander, LlmQueryExpander>();
         services.AddScoped<IIngestionPipeline, SimpleIngestionPipeline>();
         services.AddScoped<ISearchPipeline, HybridSearchPipeline>();
         services.AddScoped<IReflectionPipeline, SimpleReflectionPipeline>();

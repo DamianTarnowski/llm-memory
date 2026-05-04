@@ -18,6 +18,7 @@ internal sealed class HybridSearchPipeline(
     ILlmGateway llm,
     IReranker reranker,
     IGraphRetriever graphRetriever,
+    IQueryExpander queryExpander,
     IOptions<TimeDecayOptions> timeDecayOptions,
     TimeProvider time) : ISearchPipeline
 {
@@ -35,10 +36,14 @@ internal sealed class HybridSearchPipeline(
 
         var candidateLimit = Math.Max(20, request.MaxResults * CandidateMultiplier);
 
-        var queryEmbedding = await llm.GetEmbeddings()
-            .GenerateVectorAsync(request.Query, cancellationToken: ct)
+        // Optional query expansion — for short queries, generate variants and embed each.
+        // The original query stays as variants[0] so downstream BM25/graph still use it untouched.
+        var variants = await queryExpander.ExpandAsync(request.Query, ct).ConfigureAwait(false);
+
+        // Single batched embedding call across all variants.
+        var embeddings = await llm.GetEmbeddings()
+            .GenerateAsync(variants.ToList(), cancellationToken: ct)
             .ConfigureAwait(false);
-        var queryVector = new Pgvector.Vector(queryEmbedding.ToArray());
 
         if (db.Database.GetDbConnection().State != ConnectionState.Open)
         {
@@ -47,8 +52,17 @@ internal sealed class HybridSearchPipeline(
         var conn = (NpgsqlConnection)db.Database.GetDbConnection();
 
         // Sequential retrieval — all three retrievers share the same DbContext / NpgsqlConnection
-        // so they cannot run in parallel ("a command is already in progress").
-        var vectorHits = await VectorSearchAsync(conn, queryVector, request, candidateLimit, ct).ConfigureAwait(false);
+        // so they cannot run in parallel ("a command is already in progress"). Per-variant
+        // vector hits are RRF-fused into a single vector stream before joining BM25 and graph.
+        var vectorPerVariant = new List<List<RankedHit>>(variants.Count);
+        for (var i = 0; i < variants.Count; i++)
+        {
+            var queryVector = new Pgvector.Vector(embeddings[i].Vector.ToArray());
+            var hits = await VectorSearchAsync(conn, queryVector, request, candidateLimit, ct).ConfigureAwait(false);
+            vectorPerVariant.Add(hits);
+        }
+        var vectorHits = MergeVectorStreams(vectorPerVariant, RrfK);
+
         var bm25Hits = await Bm25SearchAsync(conn, request, candidateLimit, ct).ConfigureAwait(false);
         var graphRaw = await graphRetriever.RetrieveAsync(request.Query, candidateLimit, ct).ConfigureAwait(false);
 
@@ -226,6 +240,38 @@ internal sealed class HybridSearchPipeline(
                     Bm25Score: f.Bm25Score,
                     GraphScore: f.GraphScore,
                     RerankerScore: null)))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Fuses per-variant vector hit lists into a single re-ranked stream. Each variant's
+    /// hits get RRF contributions; the resulting stream is then sorted by combined score
+    /// and re-ranked 1..N before joining the main 3-stream fusion.
+    /// </summary>
+    private static List<RankedHit> MergeVectorStreams(List<List<RankedHit>> perVariant, int k)
+    {
+        if (perVariant.Count == 1) return perVariant[0];
+
+        var pool = new Dictionary<NoteId, (RankedHit Sample, double Score)>();
+        foreach (var list in perVariant)
+        {
+            foreach (var h in list)
+            {
+                var contribution = 1.0 / (k + h.Rank);
+                if (pool.TryGetValue(h.NoteId, out var existing))
+                {
+                    pool[h.NoteId] = (existing.Sample, existing.Score + contribution);
+                }
+                else
+                {
+                    pool[h.NoteId] = (h, contribution);
+                }
+            }
+        }
+
+        return pool.Values
+            .OrderByDescending(p => p.Score)
+            .Select((p, i) => p.Sample with { Rank = i + 1 })
             .ToList();
     }
 
