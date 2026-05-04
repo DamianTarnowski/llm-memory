@@ -55,6 +55,8 @@ scripts/.web-*
 scripts/.meta.*
 scripts/.multi.*
 scripts/.rerank.*
+scripts/.bitemporal-*
+scripts/.bt*
 
 # Blazor WASM publish
 wwwroot/dist/
