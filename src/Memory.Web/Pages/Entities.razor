@@ -1,0 +1,70 @@
+@page "/entities"
+@inject ApiClient Api
+
+<PageTitle>Memory — Entities</PageTitle>
+
+<h1>Entities</h1>
+
+<div class="input-group mb-3">
+    <input class="form-control" @bind="filter" @bind:event="oninput" placeholder="filter by name…" />
+    <button class="btn btn-primary" @onclick="Refresh">Filter</button>
+</div>
+
+@if (loading)
+{
+    <p><em>Loading…</em></p>
+}
+else if (error is not null)
+{
+    <div class="alert alert-danger">@error</div>
+}
+else
+{
+    <p class="text-muted">@entities.Count entities</p>
+    <table class="table table-sm">
+        <thead>
+            <tr><th>Name</th><th>Kind</th><th>Last seen</th><th>Attributes</th></tr>
+        </thead>
+        <tbody>
+        @foreach (var e in entities)
+        {
+            <tr>
+                <td><code>@e.Name</code></td>
+                <td>@e.Kind</td>
+                <td>@e.LastSeenAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                <td>
+                    @if (e.Attributes.Count == 0)
+                    {
+                        <span class="text-muted">—</span>
+                    }
+                    else
+                    {
+                        @foreach (var kv in e.Attributes)
+                        {
+                            <span class="badge bg-light text-dark me-1">@kv.Key=@kv.Value</span>
+                        }
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}
+
+@code {
+    string filter = "";
+    bool loading = true;
+    string? error;
+    List<EntityDto> entities = new();
+
+    protected override Task OnInitializedAsync() => Refresh();
+
+    async Task Refresh()
+    {
+        loading = true;
+        error = null;
+        try { entities = await Api.ListEntitiesAsync(string.IsNullOrWhiteSpace(filter) ? null : filter, 200); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { loading = false; }
+    }
+}

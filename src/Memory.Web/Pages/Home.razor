@@ -1,7 +1,73 @@
-﻿@page "/"
+@page "/"
+@inject ApiClient Api
+@inject TenantSettings Tenant
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Memory — Home</PageTitle>
 
-<h1>Hello, world!</h1>
+<h1>LLM Memory</h1>
+<p class="text-muted">Project <code>@Tenant.ProjectId</code> on org <code>@Tenant.OrganizationId</code></p>
 
-Welcome to your new app.
+@if (loading)
+{
+    <p><em>Loading…</em></p>
+}
+else if (error is not null)
+{
+    <div class="alert alert-danger">
+        <strong>API error:</strong> @error
+        <br /><small>Make sure Memory.Api is running at @Tenant.ApiBaseUrl with this tenant in pg_hba / RLS.</small>
+    </div>
+}
+else
+{
+    <div class="row mt-3">
+        <div class="col-md-3"><div class="card p-3"><h2>@episodeCount</h2><div>episodes</div></div></div>
+        <div class="col-md-3"><div class="card p-3"><h2>@noteCount</h2><div>notes</div></div></div>
+        <div class="col-md-3"><div class="card p-3"><h2>@entityCount</h2><div>entities</div></div></div>
+        <div class="col-md-3"><div class="card p-3"><h2>@reflectionCount</h2><div>reflections</div></div></div>
+    </div>
+
+    <h3 class="mt-4">Latest reflection</h3>
+    @if (latestReflection is null)
+    {
+        <p><em>No reflections yet.</em></p>
+    }
+    else
+    {
+        <div class="card p-3">
+            <div class="text-muted small">@latestReflection.GeneratedAt.ToLocalTime() · scope: <code>@latestReflection.Scope</code> · model: <code>@latestReflection.GeneratorModel</code></div>
+            <pre style="white-space: pre-wrap; margin-top: 0.5rem;">@latestReflection.Summary</pre>
+        </div>
+    }
+}
+
+@code {
+    bool loading = true;
+    string? error;
+    int episodeCount, noteCount, entityCount, reflectionCount;
+    ReflectionDto? latestReflection;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var episodes = await Api.ListEpisodesAsync(500);
+            var notes = await Api.ListNotesAsync(500);
+            var entities = await Api.ListEntitiesAsync(limit: 200);
+            var reflections = await Api.ListReflectionsAsync(50);
+            episodeCount = episodes.Count;
+            noteCount = notes.Count;
+            entityCount = entities.Count;
+            reflectionCount = reflections.Count;
+            latestReflection = reflections.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+}

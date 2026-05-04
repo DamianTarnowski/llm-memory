@@ -1,0 +1,62 @@
+@page "/search"
+@inject ApiClient Api
+
+<PageTitle>Memory — Search</PageTitle>
+
+<h1>Search memory</h1>
+
+<div class="input-group mb-3">
+    <input class="form-control" @bind="query" @bind:event="oninput" @onkeyup="OnKey" placeholder="natural language query…" />
+    <button class="btn btn-primary" @onclick="DoSearch" disabled="@(searching || string.IsNullOrWhiteSpace(query))">
+        @(searching ? "Searching…" : "Search")
+    </button>
+</div>
+
+@if (error is not null)
+{
+    <div class="alert alert-danger">@error</div>
+}
+
+@if (result is not null)
+{
+    <p class="text-muted">@result.Hits.Count hits / @result.TotalCandidates candidates</p>
+    @foreach (var hit in result.Hits)
+    {
+        <div class="card mb-2 p-3">
+            <div><strong>score:</strong> @hit.Score.ToString("0.000")</div>
+            <div class="mt-1">@hit.Content</div>
+            @if (hit.RelatedEntityIds.Length > 0)
+            {
+                <div class="text-muted small mt-1">@hit.RelatedEntityIds.Length related entities</div>
+            }
+        </div>
+    }
+}
+
+@code {
+    string query = "";
+    bool searching = false;
+    string? error;
+    SearchResultDto? result;
+
+    async Task DoSearch()
+    {
+        if (string.IsNullOrWhiteSpace(query)) return;
+        searching = true;
+        error = null;
+        try
+        {
+            result = await Api.SearchAsync(query, 10);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            searching = false;
+        }
+    }
+
+    Task OnKey(KeyboardEventArgs e) => e.Key == "Enter" ? DoSearch() : Task.CompletedTask;
+}
