@@ -1,0 +1,57 @@
+# .NET build output
+bin/
+obj/
+out/
+publish/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+*.userprefs
+*.lock.json
+
+# Aspire / OpenTelemetry / dashboards
+.aspire/
+*.aspire-manifest.json
+
+# Logs / diagnostics
+*.log
+logs/
+*.tlog
+*.binlog
+*.dmp
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+appsettings.*.Local.json
+appsettings.Local.json
+secrets.json
+
+# Test outputs / coverage
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# Tooling caches
+.tool-versions
+.dotnet/
+.nuget/
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Blazor WASM publish
+wwwroot/dist/
+
+# Docker volumes (if any local mounts)
+.docker/
+
+# Rider / ReSharper
+_ReSharper*/
+*.[Rr]e[Ss]harper

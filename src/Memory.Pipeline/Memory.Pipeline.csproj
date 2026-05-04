@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Memory.Domain\Memory.Domain.csproj" />
+    <ProjectReference Include="..\Memory.Tenancy\Memory.Tenancy.csproj" />
+    <ProjectReference Include="..\Memory.Storage\Memory.Storage.csproj" />
+    <ProjectReference Include="..\Memory.Llm\Memory.Llm.csproj" />
+  </ItemGroup>
+
+</Project>

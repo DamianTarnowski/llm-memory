@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Memory.Domain\Memory.Domain.csproj" />
+    <ProjectReference Include="..\Memory.Tenancy\Memory.Tenancy.csproj" />
+    <ProjectReference Include="..\Memory.Pipeline\Memory.Pipeline.csproj" />
+    <ProjectReference Include="..\Memory.Storage\Memory.Storage.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" />
+  </ItemGroup>
+
+</Project>
