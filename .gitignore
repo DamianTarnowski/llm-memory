@@ -46,6 +46,10 @@ Thumbs.db
 .DS_Store
 desktop.ini
 
+# smoke-test artifacts
+scripts/.smoke-*
+scripts/.dbg-*
+
 # Blazor WASM publish
 wwwroot/dist/
 
