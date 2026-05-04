@@ -8,6 +8,7 @@ public static class McpServiceCollectionExtensions
     public static IMcpServerBuilder AddMemoryMcpTools(this IMcpServerBuilder builder)
     {
         builder.WithToolsFromAssembly(typeof(MemoryTools).Assembly);
+        builder.WithResourcesFromAssembly(typeof(MemoryResources).Assembly);
         return builder;
     }
 }

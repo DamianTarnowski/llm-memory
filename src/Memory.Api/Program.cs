@@ -46,8 +46,47 @@ app.MapGet("/", () => Results.Ok(new
     version = typeof(Program).Assembly.GetName().Version?.ToString(),
     docs = "/openapi/v1.json",
     mcp = "/mcp",
+    health = "/api/health",
     auth = "Bearer <api-key>  OR  X-Memory-Org-Id / X-Memory-User-Id / X-Memory-Project-Id",
 }));
+
+app.MapGet("/api/health", async (MemoryDbContext db, ILlmGateway llm, CancellationToken ct) =>
+{
+    var dbStatus = "ok";
+    var dbLatencyMs = 0L;
+    try
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await db.Database.ExecuteSqlRawAsync("SELECT 1", ct);
+        sw.Stop();
+        dbLatencyMs = sw.ElapsedMilliseconds;
+    }
+    catch (Exception ex)
+    {
+        dbStatus = $"fail: {ex.GetType().Name}: {ex.Message}";
+    }
+
+    string llmStatus;
+    try
+    {
+        var chat = llm.GetChat();
+        llmStatus = chat is null ? "fail: gateway returned null" : "ok";
+    }
+    catch (Exception ex)
+    {
+        llmStatus = $"unconfigured: {ex.Message[..Math.Min(120, ex.Message.Length)]}";
+    }
+
+    var allOk = dbStatus == "ok" && llmStatus == "ok";
+    var payload = new
+    {
+        status = allOk ? "healthy" : "degraded",
+        timestamp = DateTimeOffset.UtcNow,
+        db = new { status = dbStatus, latencyMs = dbLatencyMs },
+        llm = new { status = llmStatus },
+    };
+    return allOk ? Results.Ok(payload) : Results.Json(payload, statusCode: StatusCodes.Status503ServiceUnavailable);
+});
 
 app.MapGet("/api/episodes", async (MemoryDbContext db, int limit = 50, CancellationToken ct = default) =>
     await db.Episodes
