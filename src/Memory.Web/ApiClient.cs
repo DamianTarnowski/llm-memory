@@ -27,6 +27,9 @@ public sealed class ApiClient(HttpClient http)
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<SearchResultDto>(cancellationToken: ct);
     }
+
+    public async Task<List<EdgeDto>> ListEdgesAsync(int limit = 200, CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<List<EdgeDto>>($"api/edges?limit={limit}", ct) ?? new();
 }
 
 public sealed record EpisodeDto(Guid Id, string Source, string Content, DateTimeOffset IngestedAt, DateTimeOffset? OccurredAt);
@@ -35,3 +38,4 @@ public sealed record ReflectionDto(Guid Id, string Scope, string Summary, DateTi
 public sealed record EntityDto(Guid Id, string Name, string Kind, Dictionary<string, string> Attributes, DateTimeOffset FirstSeenAt, DateTimeOffset LastSeenAt);
 public sealed record SearchHitDto(Guid NoteId, string Content, double Score, Guid[] RelatedEntityIds);
 public sealed record SearchResultDto(int TotalCandidates, List<SearchHitDto> Hits);
+public sealed record EdgeDto(Guid Id, Guid From, Guid To, string Relation, DateTimeOffset RecordedAt, DateTimeOffset? InvalidatedAt);

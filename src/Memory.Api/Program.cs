@@ -109,6 +109,21 @@ app.MapGet("/api/reflections", async (MemoryDbContext db, int limit = 50, Cancel
         .Select(r => new { id = r.Id.Value, scope = r.Scope, summary = r.Summary, generatedAt = r.GeneratedAt, generatorModel = r.GeneratorModel })
         .ToListAsync(ct));
 
+app.MapGet("/api/edges", async (IGraphContext graph, ITenantContext tenant, int limit = 200, CancellationToken ct = default) =>
+{
+    var scope = tenant.Require();
+    var edges = await graph.GetEdgesAsync(scope.Project, ct: ct);
+    return edges.Take(Math.Clamp(limit, 1, 1000)).Select(e => new
+    {
+        id = e.Id.Value,
+        from = e.From.Value,
+        to = e.To.Value,
+        relation = e.Relation,
+        recordedAt = e.RecordedAt,
+        invalidatedAt = e.InvalidatedAt,
+    });
+});
+
 app.MapGet("/api/entities", async (IGraphContext graph, ITenantContext tenant, string? name = null, int limit = 50, CancellationToken ct = default) =>
 {
     var scope = tenant.Require();
