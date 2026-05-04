@@ -17,11 +17,17 @@ public static class PipelineServiceCollectionExtensions
         services.AddOptions<LinkingOptions>()
             .Bind(configuration.GetSection(LinkingOptions.SectionName));
 
+        services.AddOptions<ReflectionScheduleOptions>()
+            .Bind(configuration.GetSection(ReflectionScheduleOptions.SectionName));
+
         services.AddScoped<IExtractor, LlmExtractor>();
         services.AddScoped<INoteLinker, LlmNoteLinker>();
         services.AddScoped<IIngestionPipeline, SimpleIngestionPipeline>();
         services.AddScoped<ISearchPipeline, HybridSearchPipeline>();
         services.AddScoped<IReflectionPipeline, SimpleReflectionPipeline>();
+
+        services.AddHostedService<ReflectionBackgroundService>();
+
         return services;
     }
 }

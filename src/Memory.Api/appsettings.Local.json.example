@@ -1,0 +1,33 @@
+{
+  "ConnectionStrings": {
+    "memorydb": "Host=localhost;Port=5435;Database=llm_memory;Username=postgres;Password=YOUR_PASS"
+  },
+  "Storage": {
+    "GraphName": "memory_graph",
+    "Schema": "memory"
+  },
+  "Llm": {
+    "ChatProvider": "AzureOpenAI",
+    "ChatModel": "gpt-5.5",
+    "EmbeddingProvider": "AzureOpenAI",
+    "EmbeddingModel": "text-embedding-3-large",
+    "EmbeddingDimensions": 3072,
+    "AzureOpenAi": {
+      "Endpoint": "https://YOUR_FOUNDRY.services.ai.azure.com",
+      "ApiKey": "YOUR_KEY",
+      "ChatDeployment": "gpt-5.5",
+      "EmbeddingDeployment": "text-embedding-3-large"
+    }
+  },
+  "Linking": {
+    "Enabled": true,
+    "NeighborCount": 5,
+    "MinSimilarity": 0.30,
+    "MinConfidence": 0.60
+  },
+  "ReflectionSchedule": {
+    "Enabled": false,
+    "InitialDelay": "00:05:00",
+    "Interval": "06:00:00"
+  }
+}

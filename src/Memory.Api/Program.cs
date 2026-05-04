@@ -1,3 +1,4 @@
+using Memory.Api;
 using Memory.Llm;
 using Memory.Mcp;
 using Memory.Pipeline;
@@ -7,6 +8,8 @@ using Memory.Tenancy;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
 builder.Services.AddOpenApi();
 
@@ -25,11 +28,20 @@ var app = builder.Build();
 app.MapDefaultEndpoints();
 app.MapOpenApi();
 
+app.UseMiddleware<TenantHeaderMiddleware>();
+
 app.MapGet("/", () => Results.Ok(new
 {
     service = "Memory.Api",
     version = typeof(Program).Assembly.GetName().Version?.ToString(),
-    docs = "/openapi/v1.json"
+    docs = "/openapi/v1.json",
+    mcp = "/mcp",
+    tenantHeaders = new[]
+    {
+        TenantHeaderMiddleware.OrgHeader,
+        TenantHeaderMiddleware.UserHeader,
+        TenantHeaderMiddleware.ProjectHeader,
+    },
 }));
 
 app.MapMcp("/mcp");
