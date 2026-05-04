@@ -37,12 +37,11 @@ internal sealed class TenantConnectionInterceptor(ITenantContext tenant) : DbCon
 
     private static string BuildSetSql(TenantScope? scope)
     {
-        if (scope is null)
-        {
-            return "RESET app.organization_id; RESET app.project_id;";
-        }
-
-        return $"SET app.organization_id = '{scope.Organization.Value:D}'; "
-             + $"SET app.project_id = '{scope.Project.Value:D}';";
+        // Use zero-UUID as a sentinel "no scope" — never matches a real org/project,
+        // so RLS hides every tenant-scoped row. Avoids RESET-on-undefined-GUC errors
+        // and keeps the SELECTs predictable when no scope is active.
+        var orgId = scope?.Organization.Value.ToString("D") ?? "00000000-0000-0000-0000-000000000000";
+        var projectId = scope?.Project.Value.ToString("D") ?? "00000000-0000-0000-0000-000000000000";
+        return $"SET app.organization_id = '{orgId}'; SET app.project_id = '{projectId}';";
     }
 }

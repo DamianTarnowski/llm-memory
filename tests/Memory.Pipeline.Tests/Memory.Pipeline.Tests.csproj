@@ -14,6 +14,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Memory.Pipeline\Memory.Pipeline.csproj" />
+    <ProjectReference Include="..\..\src\Memory.Tenancy\Memory.Tenancy.csproj" />
+    <ProjectReference Include="..\..\src\Memory.Storage\Memory.Storage.csproj" />
+    <ProjectReference Include="..\..\src\Memory.Llm\Memory.Llm.csproj" />
   </ItemGroup>
 
   <ItemGroup>

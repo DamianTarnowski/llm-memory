@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Memory.Storage\Memory.Storage.csproj" />
+    <ProjectReference Include="..\..\src\Memory.Tenancy\Memory.Tenancy.csproj" />
   </ItemGroup>
 
   <ItemGroup>
