@@ -9,8 +9,9 @@ internal static class HelpCommand
             memory — LLM Memory CLI
 
             Commands:
-              init    Seed a fresh organization / user / project tenant scope into a clean database
-                        and emit the matching Tenant config block for Memory.Mcp.Stdio.
+              init       Seed a fresh organization / user / project tenant scope into a clean database
+                            and emit the matching Tenant config block for Memory.Mcp.Stdio.
+              api-key    Manage Memory.Api bearer-token API keys (create/list/revoke).
 
             Examples:
               memory init \

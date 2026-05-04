@@ -228,6 +228,33 @@ internal sealed class ReflectionConfiguration : IEntityTypeConfiguration<Reflect
     }
 }
 
+internal sealed class ApiKeyConfiguration : IEntityTypeConfiguration<ApiKey>
+{
+    public void Configure(EntityTypeBuilder<ApiKey> b)
+    {
+        b.ToTable("api_keys");
+        b.HasKey(k => k.Id);
+        b.Property(k => k.Id).HasColumnName("id");
+        b.Property(k => k.KeyHash).HasColumnName("key_hash").HasMaxLength(128).IsRequired();
+        b.Property(k => k.Organization).HasColumnName("organization_id");
+        b.Property(k => k.Project).HasColumnName("project_id");
+        b.Property(k => k.CreatedByUser).HasColumnName("created_by_user_id");
+        b.Property(k => k.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+        b.Property(k => k.CreatedAt).HasColumnName("created_at");
+        b.Property(k => k.LastUsedAt).HasColumnName("last_used_at");
+        b.Property(k => k.RevokedAt).HasColumnName("revoked_at");
+        b.HasIndex(k => k.KeyHash).IsUnique();
+        b.HasIndex(k => k.Project);
+
+        b.HasOne<Organization>().WithMany()
+            .HasForeignKey(k => k.Organization)
+            .OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Project>().WithMany()
+            .HasForeignKey(k => k.Project)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
 internal static class JsonbDictionaryConverter
 {
     private static readonly JsonSerializerOptions _opts = new(JsonSerializerDefaults.Web);

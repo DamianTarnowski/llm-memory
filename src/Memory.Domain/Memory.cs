@@ -54,6 +54,19 @@ public sealed class NoteRelation
     public required DateTimeOffset CreatedAt { get; init; }
 }
 
+public sealed class ApiKey
+{
+    public required Guid Id { get; init; }
+    public required string KeyHash { get; init; }
+    public required OrganizationId Organization { get; init; }
+    public required ProjectId Project { get; init; }
+    public required UserId CreatedByUser { get; init; }
+    public required string Name { get; init; }
+    public required DateTimeOffset CreatedAt { get; init; }
+    public DateTimeOffset? LastUsedAt { get; init; }
+    public DateTimeOffset? RevokedAt { get; init; }
+}
+
 public sealed class Entity
 {
     public required EntityId Id { get; init; }
