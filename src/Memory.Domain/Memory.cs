@@ -42,6 +42,18 @@ public sealed class NoteEntityMention
     public required DateTimeOffset CreatedAt { get; init; }
 }
 
+public sealed class NoteRelation
+{
+    public required NoteId NoteId { get; init; }
+    public required NoteId RelatedNoteId { get; init; }
+    public required ProjectId Project { get; init; }
+    public required string RelationType { get; init; }
+    public required double Confidence { get; init; }
+    public required double Similarity { get; init; }
+    public string? Description { get; init; }
+    public required DateTimeOffset CreatedAt { get; init; }
+}
+
 public sealed class Entity
 {
     public required EntityId Id { get; init; }

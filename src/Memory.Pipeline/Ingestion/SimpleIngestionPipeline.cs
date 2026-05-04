@@ -1,9 +1,11 @@
 using Memory.Domain;
 using Memory.Llm;
+using Memory.Pipeline.Linking;
 using Memory.Storage;
 using Memory.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Memory.Pipeline.Ingestion;
@@ -14,8 +16,10 @@ internal sealed class SimpleIngestionPipeline(
     IGraphContext graph,
     ILlmGateway llm,
     IExtractor extractor,
+    INoteLinker linker,
     IOptions<LlmOptions> llmOptions,
-    TimeProvider time) : IIngestionPipeline
+    TimeProvider time,
+    ILogger<SimpleIngestionPipeline> logger) : IIngestionPipeline
 {
     public async Task<IngestionResult> IngestAsync(IngestionRequest request, CancellationToken ct = default)
     {
@@ -117,6 +121,20 @@ internal sealed class SimpleIngestionPipeline(
         }
 
         await tx.CommitAsync(ct).ConfigureAwait(false);
+
+        try
+        {
+            var linked = await linker.LinkRecentNoteAsync(note.Id, embeddingVector.ToArray(), ct).ConfigureAwait(false);
+            if (linked > 0)
+            {
+                logger.LogInformation("Linked note {NoteId} to {Count} related notes via A-MEM auto-linker.", note.Id, linked);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Linking is best-effort: never let it fail the ingest.
+            logger.LogWarning(ex, "A-MEM auto-linking failed for note {NoteId}; continuing.", note.Id);
+        }
 
         return new IngestionResult(
             episode.Id,

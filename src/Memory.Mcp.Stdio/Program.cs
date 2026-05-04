@@ -39,7 +39,7 @@ builder.Services.AddSingleton<ITenantContext>(sp =>
 
 builder.Services.AddMemoryStorage(builder.Configuration);
 builder.Services.AddMemoryLlm(builder.Configuration);
-builder.Services.AddMemoryPipeline();
+builder.Services.AddMemoryPipeline(builder.Configuration);
 
 builder.Services
     .AddMcpServer()

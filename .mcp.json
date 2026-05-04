@@ -5,22 +5,7 @@
       "command": "dotnet",
       "args": [
         "src/Memory.Mcp.Stdio/bin/Debug/net10.0/Memory.Mcp.Stdio.dll"
-      ],
-      "env": {
-        "MEMORY_Storage__ConnectionString": "${MEMORY_DB_CONNSTR}",
-        "MEMORY_Tenant__OrganizationId": "${MEMORY_ORG_ID}",
-        "MEMORY_Tenant__UserId": "${MEMORY_USER_ID}",
-        "MEMORY_Tenant__ProjectId": "${MEMORY_PROJECT_ID}",
-        "MEMORY_Llm__ChatProvider": "${MEMORY_LLM_CHAT_PROVIDER}",
-        "MEMORY_Llm__ChatModel": "${MEMORY_LLM_CHAT_MODEL}",
-        "MEMORY_Llm__EmbeddingProvider": "${MEMORY_LLM_EMBEDDING_PROVIDER}",
-        "MEMORY_Llm__EmbeddingModel": "${MEMORY_LLM_EMBEDDING_MODEL}",
-        "MEMORY_Llm__AzureOpenAi__Endpoint": "${MEMORY_AZURE_OPENAI_ENDPOINT}",
-        "MEMORY_Llm__AzureOpenAi__ApiKey": "${MEMORY_AZURE_OPENAI_KEY}",
-        "MEMORY_Llm__AzureOpenAi__ChatDeployment": "${MEMORY_AZURE_OPENAI_CHAT_DEPLOYMENT}",
-        "MEMORY_Llm__AzureOpenAi__EmbeddingDeployment": "${MEMORY_AZURE_OPENAI_EMBED_DEPLOYMENT}",
-        "MEMORY_Llm__OpenAi__ApiKey": "${MEMORY_OPENAI_KEY}"
-      }
+      ]
     }
   }
 }

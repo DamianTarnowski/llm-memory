@@ -1,8 +1,10 @@
 using System.ComponentModel;
+using Memory.Domain;
 using Memory.Pipeline;
 using Memory.Pipeline.Reflection;
 using Memory.Storage;
 using Memory.Tenancy;
+using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol.Server;
 
 namespace Memory.Mcp;
@@ -78,6 +80,42 @@ public static class MemoryTools
             result.NotesConsidered);
     }
 
+    [McpServerTool(Name = "find_related_notes")]
+    [Description("Return note-to-note relations (auto-linked at ingest time via A-MEM). " +
+                 "Useful for exploring conceptual neighbours, contradictions, or specializations of a known note.")]
+    public static async Task<FindRelatedNotesResponse> FindRelatedNotesAsync(
+        MemoryDbContext db,
+        ITenantContext tenant,
+        [Description("Note id (uuid) of the source note.")] string noteId,
+        [Description("Maximum number of relations to return (default 25).")] int maxResults = 25,
+        CancellationToken ct = default)
+    {
+        _ = tenant.Require();
+        if (!Guid.TryParse(noteId, out var guid))
+        {
+            return new FindRelatedNotesResponse(Array.Empty<RelatedNoteView>());
+        }
+
+        var nid = new NoteId(guid);
+        var rows = await db.NoteRelations
+            .Where(r => r.NoteId == nid)
+            .OrderByDescending(r => r.Confidence)
+            .Take(maxResults)
+            .Join(db.Notes,
+                r => r.RelatedNoteId,
+                n => n.Id,
+                (r, n) => new RelatedNoteView(
+                    n.Id.ToString(),
+                    n.Content,
+                    r.RelationType,
+                    r.Confidence,
+                    r.Similarity,
+                    r.Description))
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        return new FindRelatedNotesResponse(rows);
+    }
+
     [McpServerTool(Name = "get_entity")]
     [Description("Fetch a single entity by canonical name and its 1-hop neighbours in the knowledge graph " +
                  "(both outgoing and incoming edges). Returns null if not found.")]
@@ -125,6 +163,17 @@ public sealed record ReflectMemoryResponse(
     string Scope,
     string Summary,
     int NotesConsidered);
+
+public sealed record RelatedNoteView(
+    string NoteId,
+    string Content,
+    string RelationType,
+    double Confidence,
+    double Similarity,
+    string? Description);
+
+public sealed record FindRelatedNotesResponse(
+    IReadOnlyList<RelatedNoteView> Relations);
 
 public sealed record SearchMemoryHit(
     string NoteId,

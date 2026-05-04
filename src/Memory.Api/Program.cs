@@ -13,7 +13,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddMemoryTenancy();
 builder.Services.AddMemoryStorage(builder.Configuration);
 builder.Services.AddMemoryLlm(builder.Configuration);
-builder.Services.AddMemoryPipeline();
+builder.Services.AddMemoryPipeline(builder.Configuration);
 
 builder.Services
     .AddMcpServer()

@@ -177,6 +177,35 @@ internal sealed class NoteEntityMentionConfiguration : IEntityTypeConfiguration<
     }
 }
 
+internal sealed class NoteRelationConfiguration : IEntityTypeConfiguration<NoteRelation>
+{
+    public void Configure(EntityTypeBuilder<NoteRelation> b)
+    {
+        b.ToTable("note_relations");
+        b.HasKey(r => new { r.NoteId, r.RelatedNoteId });
+        b.Property(r => r.NoteId).HasColumnName("note_id");
+        b.Property(r => r.RelatedNoteId).HasColumnName("related_note_id");
+        b.Property(r => r.Project).HasColumnName("project_id");
+        b.Property(r => r.RelationType).HasColumnName("relation_type").HasMaxLength(50).IsRequired();
+        b.Property(r => r.Confidence).HasColumnName("confidence");
+        b.Property(r => r.Similarity).HasColumnName("similarity");
+        b.Property(r => r.Description).HasColumnName("description");
+        b.Property(r => r.CreatedAt).HasColumnName("created_at");
+        b.HasIndex(r => r.RelatedNoteId);
+        b.HasIndex(r => r.Project);
+
+        b.HasOne<Note>().WithMany()
+            .HasForeignKey(r => r.NoteId)
+            .OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Note>().WithMany()
+            .HasForeignKey(r => r.RelatedNoteId)
+            .OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Project>().WithMany()
+            .HasForeignKey(r => r.Project)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
 internal sealed class ReflectionConfiguration : IEntityTypeConfiguration<Reflection>
 {
     public void Configure(EntityTypeBuilder<Reflection> b)
