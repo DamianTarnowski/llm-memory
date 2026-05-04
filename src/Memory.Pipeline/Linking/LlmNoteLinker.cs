@@ -56,6 +56,7 @@ internal sealed class LlmNoteLinker(
         if (sourceNote is null) return 0;
 
         var created = 0;
+        var supersedeCandidate = false;
         foreach (var (candidateId, candidateContent, similarity) in candidates)
         {
             try
@@ -68,18 +69,25 @@ internal sealed class LlmNoteLinker(
                     .FirstOrDefaultAsync(ct).ConfigureAwait(false);
                 if (existing is not null) continue;
 
+                var relationType = string.IsNullOrWhiteSpace(judgment.RelationType) ? "related-to" : judgment.RelationType;
                 db.NoteRelations.Add(new NoteRelation
                 {
                     NoteId = noteId,
                     RelatedNoteId = candidateId,
                     Project = scope.Project,
-                    RelationType = string.IsNullOrWhiteSpace(judgment.RelationType) ? "related-to" : judgment.RelationType,
+                    RelationType = relationType,
                     Confidence = judgment.Confidence,
                     Similarity = similarity,
                     Description = string.IsNullOrWhiteSpace(judgment.Description) ? null : judgment.Description,
                     CreatedAt = now,
                 });
                 created++;
+
+                if (relationType.Equals("duplicates", StringComparison.OrdinalIgnoreCase)
+                    && judgment.Confidence >= opts.DuplicateSupersedeConfidence)
+                {
+                    supersedeCandidate = true;
+                }
             }
             catch (Exception ex)
             {
@@ -91,6 +99,16 @@ internal sealed class LlmNoteLinker(
         {
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
+
+        if (supersedeCandidate)
+        {
+            await db.Notes
+                .Where(n => n.Id == noteId)
+                .ExecuteUpdateAsync(s => s.SetProperty(n => n.SupersededAt, _ => now), ct)
+                .ConfigureAwait(false);
+            logger.LogInformation("Note {NoteId} superseded immediately as duplicate of an existing note.", noteId);
+        }
+
         return created;
     }
 

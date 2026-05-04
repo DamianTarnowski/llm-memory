@@ -131,20 +131,20 @@ internal sealed class AgeGraphContext(MemoryDbContext db, IOptions<StorageOption
     public async Task AddEdgeAsync(Edge edge, CancellationToken ct = default)
     {
         var pid = CypherStr(edge.Project.Value.ToString("D"));
+        var rec = CypherStr(edge.RecordedAt.ToString("o", CultureInfo.InvariantCulture));
+        // MERGE (vs CREATE) so repeated saves of the same (from, to, relation) edge in
+        // a project don't accumulate duplicates. AGE 1.6 has no ON CREATE SET, so we
+        // emulate it with COALESCE — original metadata is preserved on existing edges.
         var cypher = $$"""
             MATCH (a:Entity {id: {{CypherStr(edge.From.Value.ToString("D"))}}, project_id: {{pid}}})
             MATCH (b:Entity {id: {{CypherStr(edge.To.Value.ToString("D"))}}, project_id: {{pid}}})
-            CREATE (a)-[r:Edge {
-                id: {{CypherStr(edge.Id.Value.ToString("D"))}},
-                project_id: {{pid}},
-                relation: {{CypherStr(edge.Relation)}},
-                recorded_at: {{CypherStr(edge.RecordedAt.ToString("o", CultureInfo.InvariantCulture))}},
-                valid_from: {{CypherOptStr(edge.ValidFrom?.ToString("o", CultureInfo.InvariantCulture))}},
-                valid_to: {{CypherOptStr(edge.ValidTo?.ToString("o", CultureInfo.InvariantCulture))}},
-                invalidated_at: null,
-                source_episode: {{CypherOptStr(edge.SourceEpisode?.Value.ToString("D"))}},
-                properties: {{CypherMap(edge.Properties)}}
-            }]->(b)
+            MERGE (a)-[r:Edge {project_id: {{pid}}, relation: {{CypherStr(edge.Relation)}}}]->(b)
+            SET r.id = COALESCE(r.id, {{CypherStr(edge.Id.Value.ToString("D"))}}),
+                r.recorded_at = COALESCE(r.recorded_at, {{rec}}),
+                r.valid_from = COALESCE(r.valid_from, {{CypherOptStr(edge.ValidFrom?.ToString("o", CultureInfo.InvariantCulture))}}),
+                r.valid_to = {{CypherOptStr(edge.ValidTo?.ToString("o", CultureInfo.InvariantCulture))}},
+                r.source_episode = COALESCE(r.source_episode, {{CypherOptStr(edge.SourceEpisode?.Value.ToString("D"))}}),
+                r.properties = {{CypherMap(edge.Properties)}}
             RETURN r.id
             """;
 

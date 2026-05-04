@@ -17,7 +17,13 @@ internal sealed class LlmExtractor(ILlmGateway llm) : IExtractor
         - Relationships between entities (e.g. WORKS_AT, MENTIONS, AUTHORED, KNOWS, USES) with optional properties.
 
         Use canonical entity names (lowercase, hyphen-separated for multi-word).
-        Be precise. Return ONLY the structured object — no commentary, no markdown.
+
+        IMPORTANT: All attribute and property VALUES must be strings. Convert booleans, numbers, and dates
+        into their string representations (e.g. "true", "1815", "2024-03-15"). Never emit raw booleans,
+        numbers, or null inside the attributes/properties dictionaries.
+
+        Return ONLY a JSON object with the actual values populated. Do NOT echo back the schema definition
+        (no "type", "properties", "items" wrapper keys — those are schema metadata, not values).
         """;
 
     public async Task<ExtractionResult> ExtractAsync(string content, CancellationToken ct = default)
