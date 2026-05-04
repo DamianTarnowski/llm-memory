@@ -280,13 +280,13 @@ namespace Memory.Storage.Migrations
                 column: "email",
                 unique: true);
 
-            migrationBuilder.Sql(
-                """
-                CREATE INDEX ix_note_embeddings_embedding
-                    ON memory.note_embeddings
-                    USING hnsw (embedding vector_cosine_ops)
-                    WITH (m = 16, ef_construction = 64);
-                """);
+            // No vector index in the initial migration: pgvector 0.8.2 caps both HNSW and
+            // IVFFlat with vector_cosine_ops at 2,000 dimensions, but our default
+            // text-embedding-3-large is 3,072. Sequential scan is fine at < 100k notes.
+            // For production scale, follow up with one of:
+            //   - HNSW on halfvec(3072) + halfvec_cosine_ops (4,000 dim cap)
+            //   - IVFFlat on vector(3072) with vector_l2_ops or vector_ip_ops (16,000 cap)
+            //   - text-embedding-3-large with dimensions=1536 (HNSW vector_cosine_ops works)
 
             migrationBuilder.Sql(
                 """
