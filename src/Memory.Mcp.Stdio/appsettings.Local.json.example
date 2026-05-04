@@ -5,7 +5,7 @@
     "ProjectId": "PASTE_PROJECT_GUID_FROM_memory_init"
   },
   "Storage": {
-    "ConnectionString": "Host=localhost;Port=5434;Database=llm_memory;Username=postgres;Password=REDACTED_PG_PASSWORD",
+    "ConnectionString": "Host=localhost;Port=5434;Database=llm_memory;Username=memory_app;Password=memory_app",
     "GraphName": "memory_graph",
     "Schema": "memory"
   },

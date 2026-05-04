@@ -222,13 +222,15 @@ internal sealed class AgeGraphContext(MemoryDbContext db, IOptions<StorageOption
 
     private string BuildSql(string cypher, int columnCount)
     {
-        // AGE requires `LOAD 'age'` and ag_catalog on search_path each session for its
-        // operator overloads (e.g. @> for MERGE) to resolve. Both are idempotent.
+        // AGE needs ag_catalog on search_path each session for its operator overloads
+        // (e.g. @> for MERGE) to resolve. The library itself is preloaded via
+        // shared_preload_libraries = 'age', so an explicit LOAD here is redundant —
+        // and worse, LOAD requires superuser/preload-list permission, which breaks
+        // non-superuser runtime roles like memory_app.
         // Cast agtype results to text so Npgsql can read them as strings.
         var declared = string.Join(", ", Enumerable.Range(0, columnCount).Select(i => $"col{i} ag_catalog.agtype"));
         var projected = string.Join(", ", Enumerable.Range(0, columnCount).Select(i => $"col{i}::text"));
         return $"""
-            LOAD 'age';
             SET search_path = ag_catalog, "$user", public;
             SELECT {projected} FROM ag_catalog.cypher('{_options.GraphName}', $cy${cypher}$cy$) AS ({declared});
             """;

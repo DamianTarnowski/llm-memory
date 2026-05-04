@@ -99,6 +99,26 @@ SHORT_HITS=$(curl -sf "${HDR[@]}" -H "Content-Type: application/json" "$API_URL/
     || fail "short query returned 0"
 
 # ---------------------------------------------------------------------------
+step "Tenancy isolation (RLS)"
+# ---------------------------------------------------------------------------
+# Without tenant headers OR a bearer the API has no scope; RLS should hide all rows.
+# This only works if the API connects as a NOBYPASSRLS role (memory_app), not postgres.
+NO_HEADERS=$(curl -sf "$API_URL/api/notes?limit=5" | python -c "import sys,json; print(len(json.load(sys.stdin)))")
+[[ "$NO_HEADERS" == "0" ]] && pass "no headers → 0 notes (RLS enforces)" \
+    || fail "no headers → $NO_HEADERS notes (RLS bypassed — API likely connected as superuser)"
+
+# With wrong project_id headers, no rows should match.
+WRONG=$(curl -sf -H "X-Memory-Org-Id: $ORG_ID" -H "X-Memory-User-Id: $USR_ID" \
+    -H "X-Memory-Project-Id: 00000000-0000-0000-0000-000000000000" \
+    "$API_URL/api/notes?limit=5" | python -c "import sys,json; print(len(json.load(sys.stdin)))")
+[[ "$WRONG" == "0" ]] && pass "wrong project_id → 0 notes" \
+    || fail "wrong project_id leaked $WRONG notes"
+
+# Bad bearer should 401 (not 200, not silently fall through).
+BAD=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer memk_invalid_test_xyz" "$API_URL/api/health")
+[[ "$BAD" == "401" ]] && pass "invalid bearer → HTTP 401" || fail "invalid bearer → HTTP $BAD"
+
+# ---------------------------------------------------------------------------
 step "Edges — bi-temporal field"
 # ---------------------------------------------------------------------------
 EDGES=$(curl -sf "${HDR[@]}" "$API_URL/api/edges?limit=200")

@@ -1,6 +1,10 @@
 {
+  // Use the non-superuser memory_app role — superusers bypass row-level security
+  // regardless of FORCE, so connecting as postgres silently disables tenancy
+  // isolation. memory_app is created by migration 20260504210400_AddMemoryAppRole.
+  // Migrations themselves still need a superuser; use postgres for `dotnet ef`.
   "ConnectionStrings": {
-    "memorydb": "Host=localhost;Port=5435;Database=llm_memory;Username=postgres;Password=YOUR_PASS"
+    "memorydb": "Host=localhost;Port=5435;Database=llm_memory;Username=memory_app;Password=memory_app"
   },
   "Storage": {
     "GraphName": "memory_graph",
