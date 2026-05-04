@@ -52,6 +52,9 @@ scripts/.dbg-*
 scripts/.stress-*
 scripts/.api-*
 scripts/.web-*
+scripts/.meta.*
+scripts/.multi.*
+scripts/.rerank.*
 
 # Blazor WASM publish
 wwwroot/dist/

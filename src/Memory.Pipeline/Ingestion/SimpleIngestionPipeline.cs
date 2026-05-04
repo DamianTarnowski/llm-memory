@@ -28,8 +28,9 @@ internal sealed class SimpleIngestionPipeline(
 
         var extraction = await extractor.ExtractAsync(request.Content, ct).ConfigureAwait(false);
 
-        var embeddingVector = await llm.GetEmbeddings()
-            .GenerateVectorAsync(extraction.Note.Content, cancellationToken: ct)
+        // Single batched embedding call for all atomic notes.
+        var embeddings = await llm.GetEmbeddings()
+            .GenerateAsync(extraction.Notes.Select(n => n.Content).ToList(), cancellationToken: ct)
             .ConfigureAwait(false);
 
         var episode = new Episode
@@ -43,35 +44,44 @@ internal sealed class SimpleIngestionPipeline(
             Metadata = request.Metadata?.ToDictionary(kv => kv.Key, kv => kv.Value) ?? new Dictionary<string, string>(),
         };
 
-        var note = new Note
+        var notes = new List<Note>(extraction.Notes.Count);
+        var noteEmbeddings = new List<NoteEmbedding>(extraction.Notes.Count);
+        for (var i = 0; i < extraction.Notes.Count; i++)
         {
-            Id = NoteId.New(),
-            Project = scope.Project,
-            SourceEpisode = episode.Id,
-            Content = extraction.Note.Content,
-            ContextDescription = extraction.Note.ContextDescription,
-            Keywords = extraction.Note.Keywords,
-            Tags = extraction.Note.Tags,
-            CreatedAt = now,
-        };
+            var ext = extraction.Notes[i];
+            var note = new Note
+            {
+                Id = NoteId.New(),
+                Project = scope.Project,
+                SourceEpisode = episode.Id,
+                Content = ext.Content,
+                ContextDescription = ext.ContextDescription,
+                Keywords = ext.Keywords,
+                Tags = ext.Tags,
+                CreatedAt = now,
+            };
+            notes.Add(note);
 
-        var noteEmbedding = new NoteEmbedding
-        {
-            NoteId = note.Id,
-            Project = scope.Project,
-            EmbeddingModel = llmOptions.Value.EmbeddingModel,
-            Dimensions = embeddingVector.Length,
-            Embedding = embeddingVector.ToArray(),
-            CreatedAt = now,
-        };
+            var vec = embeddings[i].Vector.ToArray();
+            noteEmbeddings.Add(new NoteEmbedding
+            {
+                NoteId = note.Id,
+                Project = scope.Project,
+                EmbeddingModel = llmOptions.Value.EmbeddingModel,
+                Dimensions = vec.Length,
+                Embedding = vec,
+                CreatedAt = now,
+            });
+        }
 
         await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
 
         db.Episodes.Add(episode);
-        db.Notes.Add(note);
-        db.NoteEmbeddings.Add(noteEmbedding);
+        db.Notes.AddRange(notes);
+        db.NoteEmbeddings.AddRange(noteEmbeddings);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
 
+        // Upsert entities (mentioned across all notes — entity mentions per-note for retrieval).
         var entityMap = new Dictionary<string, EntityId>(StringComparer.OrdinalIgnoreCase);
         foreach (var ext in extraction.Entities)
         {
@@ -86,21 +96,25 @@ internal sealed class SimpleIngestionPipeline(
                 ct).ConfigureAwait(false);
             entityMap[ext.Name] = id;
 
-            db.NoteEntityMentions.Add(new NoteEntityMention
+            // Mention every entity from every note in the episode (proxy for "this episode's entities").
+            // A finer-grained per-note mention would require LLM to assign entities-per-note.
+            foreach (var n in notes)
             {
-                NoteId = note.Id,
-                EntityId = id,
-                Project = scope.Project,
-                CreatedAt = now,
-            });
+                db.NoteEntityMentions.Add(new NoteEntityMention
+                {
+                    NoteId = n.Id,
+                    EntityId = id,
+                    Project = scope.Project,
+                    CreatedAt = now,
+                });
+            }
         }
         if (entityMap.Count > 0)
         {
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
 
-        // Bi-temporal: invalidate any prior edges the LLM marked as superseded by this episode.
-        // Resolve entity ids from local map first, fall back to graph lookup for older entities.
+        // Bi-temporal: invalidate prior edges marked as superseded.
         if (extraction.SupersedesPriorEdges is { Count: > 0 } supersedes)
         {
             foreach (var s in supersedes)
@@ -142,23 +156,28 @@ internal sealed class SimpleIngestionPipeline(
 
         await tx.CommitAsync(ct).ConfigureAwait(false);
 
+        // A-MEM auto-linking — best-effort, per note, after main commit.
         try
         {
-            var linked = await linker.LinkRecentNoteAsync(note.Id, embeddingVector.ToArray(), ct).ConfigureAwait(false);
-            if (linked > 0)
+            for (var i = 0; i < notes.Count; i++)
             {
-                logger.LogInformation("Linked note {NoteId} to {Count} related notes via A-MEM auto-linker.", note.Id, linked);
+                var linked = await linker
+                    .LinkRecentNoteAsync(notes[i].Id, noteEmbeddings[i].Embedding, ct)
+                    .ConfigureAwait(false);
+                if (linked > 0)
+                {
+                    logger.LogInformation("A-MEM linked note {NoteId} to {Count} prior notes.", notes[i].Id, linked);
+                }
             }
         }
         catch (Exception ex)
         {
-            // Linking is best-effort: never let it fail the ingest.
-            logger.LogWarning(ex, "A-MEM auto-linking failed for note {NoteId}; continuing.", note.Id);
+            logger.LogWarning(ex, "A-MEM auto-linking failed for episode {EpisodeId}; continuing.", episode.Id);
         }
 
         return new IngestionResult(
             episode.Id,
-            [note.Id],
+            notes.Select(n => n.Id).ToList(),
             entityMap.Values.ToList());
     }
 

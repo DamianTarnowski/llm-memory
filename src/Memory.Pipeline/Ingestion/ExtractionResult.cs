@@ -63,7 +63,7 @@ internal sealed class LenientStringDictionaryConverter : JsonConverter<Dictionar
 }
 
 public sealed record ExtractionResult(
-    ExtractedNote Note,
+    List<ExtractedNote> Notes,
     List<ExtractedEntity> Entities,
     List<ExtractedRelationship> Relationships,
     List<RelationshipTriple>? SupersedesPriorEdges = null);
