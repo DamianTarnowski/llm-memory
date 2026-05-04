@@ -14,7 +14,8 @@ namespace Memory.Pipeline.Search;
 internal sealed class HybridSearchPipeline(
     ITenantContext tenant,
     MemoryDbContext db,
-    ILlmGateway llm) : ISearchPipeline
+    ILlmGateway llm,
+    IReranker reranker) : ISearchPipeline
 {
     private const int CandidateMultiplier = 4;     // pull 4× max from each retriever before fusion
     private const int RrfK = 60;                    // standard RRF constant
@@ -45,7 +46,9 @@ internal sealed class HybridSearchPipeline(
         var bm25Hits = await Bm25SearchAsync(conn, request, candidateLimit, ct).ConfigureAwait(false);
 
         var fused = FuseRrf(vectorHits, bm25Hits, RrfK);
-        var top = fused.Take(request.MaxResults).ToList();
+
+        var reranked = await reranker.RerankAsync(request.Query, fused, ct).ConfigureAwait(false);
+        var top = reranked.Take(request.MaxResults).ToList();
 
         return new SearchResult(top, fused.Count);
     }
