@@ -6,6 +6,7 @@ using Memory.Storage;
 using Memory.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -16,7 +17,9 @@ internal sealed class HybridSearchPipeline(
     MemoryDbContext db,
     ILlmGateway llm,
     IReranker reranker,
-    IGraphRetriever graphRetriever) : ISearchPipeline
+    IGraphRetriever graphRetriever,
+    IOptions<TimeDecayOptions> timeDecayOptions,
+    TimeProvider time) : ISearchPipeline
 {
     private const int CandidateMultiplier = 4;     // pull 4× max from each retriever before fusion
     private const int RrfK = 60;                    // standard RRF constant
@@ -55,10 +58,40 @@ internal sealed class HybridSearchPipeline(
 
         var fused = FuseRrf(vectorHits, bm25Hits, graphHits, RrfK);
 
-        var reranked = await reranker.RerankAsync(request.Query, fused, ct).ConfigureAwait(false);
+        // Optional time-decay: re-weight by note age before reranking.
+        var decayed = await ApplyTimeDecayAsync(fused, ct).ConfigureAwait(false);
+
+        var reranked = await reranker.RerankAsync(request.Query, decayed, ct).ConfigureAwait(false);
         var top = reranked.Take(request.MaxResults).ToList();
 
         return new SearchResult(top, fused.Count);
+    }
+
+    private async Task<IReadOnlyList<SearchHit>> ApplyTimeDecayAsync(IReadOnlyList<SearchHit> hits, CancellationToken ct)
+    {
+        var opts = timeDecayOptions.Value;
+        if (!opts.Enabled || hits.Count == 0) return hits;
+
+        var noteIds = hits.Select(h => h.NoteId.Value).ToArray();
+        var ages = await db.Notes
+            .FromSqlInterpolated($"SELECT * FROM memory.notes WHERE id = ANY({noteIds})")
+            .Select(n => new { n.Id, n.CreatedAt })
+            .ToListAsync(ct).ConfigureAwait(false);
+        var ageLookup = ages.ToDictionary(n => n.Id, n => n.CreatedAt);
+
+        var now = time.GetUtcNow();
+        var lambda = Math.Log(2.0) / Math.Max(0.001, opts.HalfLifeDays);
+
+        return hits
+            .Select(h =>
+            {
+                if (!ageLookup.TryGetValue(h.NoteId, out var createdAt)) return h;
+                var ageDays = Math.Max(0.0, (now - createdAt).TotalDays);
+                var multiplier = Math.Max(opts.MinMultiplier, Math.Exp(-lambda * ageDays));
+                return h with { Score = h.Score * multiplier };
+            })
+            .OrderByDescending(h => h.Score)
+            .ToList();
     }
 
     private static async Task<List<RankedHit>> VectorSearchAsync(

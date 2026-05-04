@@ -26,6 +26,9 @@ public static class PipelineServiceCollectionExtensions
         services.AddOptions<GraphRetrievalOptions>()
             .Bind(configuration.GetSection(GraphRetrievalOptions.SectionName));
 
+        services.AddOptions<TimeDecayOptions>()
+            .Bind(configuration.GetSection(TimeDecayOptions.SectionName));
+
         services.AddScoped<IExtractor, LlmExtractor>();
         services.AddScoped<INoteLinker, LlmNoteLinker>();
         services.AddScoped<IReranker, LlmReranker>();
