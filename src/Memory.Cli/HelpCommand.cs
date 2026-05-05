@@ -16,6 +16,7 @@ internal static class HelpCommand
               chat       Conversational REPL against the search pipeline.
               tenants    Schema-per-org foundation: provision / list / drop tenant schemas.
               eval       Retrieval evaluation harness: gen-queries + run (Recall@K + MRR).
+              md         Markdown round-trip: export notes / import folder of .md files.
 
             Examples:
               memory init \

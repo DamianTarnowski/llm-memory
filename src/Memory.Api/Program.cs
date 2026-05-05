@@ -157,6 +157,32 @@ app.MapGet("/api/entities", async (IGraphContext graph, ITenantContext tenant, s
     });
 });
 
+app.MapPost("/api/episodes", async (
+    IIngestionPipeline pipeline,
+    Memory.Api.IngestEpisodeRequest body,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(body.Content))
+    {
+        return Results.BadRequest(new { error = "content is required" });
+    }
+    var result = await pipeline.IngestAsync(new IngestionRequest(
+        Source: body.Source ?? "api",
+        Content: body.Content,
+        OccurredAt: body.OccurredAt,
+        Metadata: body.Metadata),
+        ct);
+    return Results.Ok(new
+    {
+        episodeId = result.EpisodeId?.Value,
+        noteIds = result.Notes.Select(n => n.Value).ToArray(),
+        entityIds = result.EntitiesUpserted.Select(e => e.Value).ToArray(),
+        skipped = result.Skipped,
+        skipReason = result.SkipReason,
+        importanceScore = result.ImportanceScore,
+    });
+});
+
 app.MapPost("/api/search", async (ISearchPipeline pipeline, SearchPostBody body, CancellationToken ct) =>
 {
     IReadOnlyList<NoteKind>? kinds = null;
@@ -381,6 +407,12 @@ namespace Memory.Api
     public sealed record EvalQueriesRequest(int? Count);
     public sealed record EvalRunRequest(IReadOnlyList<EvalQueryItem> Queries, int? TopK);
     public sealed record EvalQueryItem(Guid NoteId, string Query);
+
+    public sealed record IngestEpisodeRequest(
+        string Content,
+        string? Source = null,
+        DateTimeOffset? OccurredAt = null,
+        Dictionary<string, string>? Metadata = null);
 }
 
 public partial class Program;
