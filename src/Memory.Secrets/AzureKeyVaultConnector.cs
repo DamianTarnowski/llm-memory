@@ -3,6 +3,7 @@ using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.Memory;
+using Microsoft.Extensions.Primitives;
 
 namespace Memory.Secrets;
 
@@ -36,17 +37,53 @@ public sealed class AzureKeyVaultConnector(AzureKeyVaultOptions options) : ISecr
         var uri = options.VaultUri ?? Environment.GetEnvironmentVariable("MEMORY_KV_URI");
         if (string.IsNullOrWhiteSpace(uri))
         {
-            // Optional + unconfigured -> contribute zero keys.
             return new MemoryConfigurationProvider(new MemoryConfigurationSource());
         }
 
-        var client = new SecretClient(new Uri(uri), new DefaultAzureCredential());
-        var configOptions = new AzureKeyVaultConfigurationOptions
+        // Wrap the inner provider in a fail-open shim so a transient KV outage at
+        // startup (managed identity role still propagating, network blip, vault
+        // briefly unreachable) doesn't crash the entire app — the rest of the
+        // chain (OpenBao → JSON) carries the load.
+        try
         {
-            Manager = new KeyVaultSecretManager(),
-            ReloadInterval = options.ReloadInterval,
-        };
-        var inner = new AzureKeyVaultConfigurationSource(client, configOptions);
-        return inner.Build(builder);
+            var client = new SecretClient(new Uri(uri), new DefaultAzureCredential());
+            var configOptions = new AzureKeyVaultConfigurationOptions
+            {
+                Manager = new KeyVaultSecretManager(),
+                ReloadInterval = options.ReloadInterval,
+            };
+            var inner = new AzureKeyVaultConfigurationSource(client, configOptions);
+            var provider = inner.Build(builder);
+            return new SafeKeyVaultProvider(provider, options.Optional);
+        }
+        catch when (options.Optional)
+        {
+            return new MemoryConfigurationProvider(new MemoryConfigurationSource());
+        }
+    }
+
+    /// <summary>
+    /// Decorates the underlying KV provider so its first synchronous Load() can fail
+    /// without exiting the host. After Load() succeeds once, calls pass through.
+    /// </summary>
+    private sealed class SafeKeyVaultProvider(IConfigurationProvider inner, bool optional) : IConfigurationProvider, IDisposable
+    {
+        private bool _loaded;
+
+        public IEnumerable<string> GetChildKeys(IEnumerable<string> earlierKeys, string? parentPath) =>
+            _loaded ? inner.GetChildKeys(earlierKeys, parentPath) : earlierKeys;
+        public IChangeToken GetReloadToken() => inner.GetReloadToken();
+        public void Set(string key, string? value) => inner.Set(key, value);
+        public bool TryGet(string key, out string? value)
+        {
+            if (!_loaded) { value = null; return false; }
+            return inner.TryGet(key, out value);
+        }
+        public void Load()
+        {
+            try { inner.Load(); _loaded = true; }
+            catch when (optional) { /* swallow — chain falls through */ }
+        }
+        public void Dispose() => (inner as IDisposable)?.Dispose();
     }
 }
