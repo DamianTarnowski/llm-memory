@@ -31,8 +31,8 @@ internal static class ChatCommand
         Console.WriteLine($"""
             memory chat — connected to {apiUrl}
             Commands:
-              <free text>            save the line as an episode
-              /search <query>        hybrid search the project
+              /ask <question>        search memory + stream LLM answer (recommended)
+              /search <query>        hybrid search the project (raw hits, no LLM)
               /reflect [scope]       generate a reflection (scope optional)
               /entity <name>         look up an entity + neighbours
               /related <note-id>     show notes linked to this one (A-MEM)
@@ -49,7 +49,11 @@ internal static class ChatCommand
 
             try
             {
-                if (line.StartsWith("/search ", StringComparison.OrdinalIgnoreCase))
+                if (line.StartsWith("/ask ", StringComparison.OrdinalIgnoreCase))
+                {
+                    await DoAsk(http, line["/ask ".Length..]).ConfigureAwait(false);
+                }
+                else if (line.StartsWith("/search ", StringComparison.OrdinalIgnoreCase))
                 {
                     await DoSearch(http, line["/search ".Length..]).ConfigureAwait(false);
                 }
@@ -80,6 +84,63 @@ internal static class ChatCommand
                 Console.Error.WriteLine($"  error: {ex.Message}");
             }
         }
+    }
+
+    private static async Task DoAsk(HttpClient http, string question)
+    {
+        // Streaming SSE — server sends frames "data: {json}\n\n", terminated by "data: [DONE]".
+        // First frame is metadata about the search context; subsequent frames carry the LLM
+        // answer in deltas. Print deltas as they land so the user sees the answer build up.
+        var body = new { query = question, maxHits = 5, maxContextTokens = 2000 };
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/chat") { Content = JsonContent.Create(body) };
+        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode)
+        {
+            Console.WriteLine($"  error: HTTP {(int)resp.StatusCode}");
+            return;
+        }
+
+        await using var stream = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        using var reader = new StreamReader(stream);
+
+        var startedAnswer = false;
+        while (true)
+        {
+            var line = await reader.ReadLineAsync().ConfigureAwait(false);
+            if (line is null) break;
+            if (!line.StartsWith("data: ", StringComparison.Ordinal)) continue;
+            var data = line["data: ".Length..];
+            if (data == "[DONE]") break;
+            try
+            {
+                using var doc = JsonDocument.Parse(data);
+                var type = doc.RootElement.TryGetProperty("type", out var t) ? t.GetString() : null;
+                if (type == "context")
+                {
+                    var hits = doc.RootElement.GetProperty("hits").GetInt32();
+                    var cands = doc.RootElement.GetProperty("candidates").GetInt32();
+                    var abstain = doc.RootElement.GetProperty("abstain").GetBoolean();
+                    Console.WriteLine(abstain
+                        ? $"  (no relevant memory — {cands} candidates rejected)"
+                        : $"  (memory: {hits} hits / {cands} candidates)");
+                    Console.Write("  ");
+                }
+                else if (type == "delta")
+                {
+                    var delta = doc.RootElement.GetProperty("delta").GetString() ?? "";
+                    Console.Write(delta);
+                    startedAnswer = true;
+                }
+                else if (type == "error")
+                {
+                    var msg = doc.RootElement.GetProperty("message").GetString() ?? "unknown";
+                    Console.WriteLine($"\n  stream error: {msg}");
+                }
+            }
+            catch (JsonException) { /* skip malformed */ }
+        }
+        if (startedAnswer) Console.WriteLine();
     }
 
     private static async Task DoSearch(HttpClient http, string query)

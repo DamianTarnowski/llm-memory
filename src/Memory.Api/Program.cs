@@ -163,6 +163,87 @@ app.MapGet("/api/entities", async (IGraphContext graph, ITenantContext tenant, s
     });
 });
 
+// Streaming chat: search memory + stream LLM answer as SSE.
+// Frames: data: {"delta":"..."}\n\n  ... data: [DONE]\n\n
+app.MapPost("/api/chat", async (
+    Memory.Api.ChatRequestBody body,
+    ISearchPipeline pipeline,
+    ILlmGateway llm,
+    HttpContext context,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(body.Query))
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsync("query is required", ct);
+        return;
+    }
+
+    var maxHits = Math.Clamp(body.MaxHits ?? 5, 1, 30);
+    var contextBudget = Math.Clamp(body.MaxContextTokens ?? 2000, 200, 8000);
+
+    var search = await pipeline.SearchAsync(
+        new SearchRequest(body.Query, maxHits, MaxTokens: contextBudget), ct).ConfigureAwait(false);
+
+    var contextLines = search.Abstain
+        ? new List<string>()
+        : search.Hits.Select((h, i) => $"[{i + 1}] {h.Content}").ToList();
+    var contextStr = contextLines.Count > 0
+        ? string.Join("\n", contextLines)
+        : "(no relevant memory found)";
+
+    context.Response.ContentType = "text/event-stream";
+    context.Response.Headers.CacheControl = "no-cache";
+    context.Response.Headers["X-Accel-Buffering"] = "no"; // disable proxy buffering
+
+    // Lead frame: tell the client what context was found before the LLM starts.
+    var meta = System.Text.Json.JsonSerializer.Serialize(new
+    {
+        type = "context",
+        hits = search.Hits.Count,
+        candidates = search.TotalCandidates,
+        abstain = search.Abstain,
+        abstainReason = search.AbstainReason,
+    });
+    await context.Response.WriteAsync($"data: {meta}\n\n", ct).ConfigureAwait(false);
+    await context.Response.Body.FlushAsync(ct).ConfigureAwait(false);
+
+    const string sysPrompt = """
+        You are a helpful assistant with access to the user's personal memory store. The
+        Context below is the result of a hybrid search (vector + BM25 + graph PPR). Use it
+        as your source of truth. If the context is empty or doesn't actually answer the
+        question, say so plainly — don't fabricate.
+
+        Be concise. Cite hits inline as [1], [2] when you use them so the user can trace
+        what you relied on. Match the user's tone and language.
+        """;
+
+    var messages = new List<Microsoft.Extensions.AI.ChatMessage>
+    {
+        new(Microsoft.Extensions.AI.ChatRole.System, sysPrompt),
+        new(Microsoft.Extensions.AI.ChatRole.User, $"Context:\n{contextStr}\n\nQuestion: {body.Query}"),
+    };
+
+    try
+    {
+        await foreach (var update in llm.GetChat().GetStreamingResponseAsync(messages, cancellationToken: ct))
+        {
+            if (string.IsNullOrEmpty(update.Text)) continue;
+            var frame = System.Text.Json.JsonSerializer.Serialize(new { type = "delta", delta = update.Text });
+            await context.Response.WriteAsync($"data: {frame}\n\n", ct).ConfigureAwait(false);
+            await context.Response.Body.FlushAsync(ct).ConfigureAwait(false);
+        }
+    }
+    catch (Exception ex)
+    {
+        var errFrame = System.Text.Json.JsonSerializer.Serialize(new { type = "error", message = ex.Message });
+        await context.Response.WriteAsync($"data: {errFrame}\n\n", ct).ConfigureAwait(false);
+    }
+
+    await context.Response.WriteAsync("data: [DONE]\n\n", ct).ConfigureAwait(false);
+    await context.Response.Body.FlushAsync(ct).ConfigureAwait(false);
+});
+
 app.MapPost("/api/episodes", async (
     IIngestionPipeline pipeline,
     Memory.Api.IngestEpisodeRequest body,
@@ -422,6 +503,11 @@ namespace Memory.Api
         string? Source = null,
         DateTimeOffset? OccurredAt = null,
         Dictionary<string, string>? Metadata = null);
+
+    public sealed record ChatRequestBody(
+        string Query,
+        int? MaxHits = 5,
+        int? MaxContextTokens = 2000);
 }
 
 public partial class Program;
