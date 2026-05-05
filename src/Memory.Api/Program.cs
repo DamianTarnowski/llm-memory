@@ -194,7 +194,7 @@ app.MapPost("/api/search", async (ISearchPipeline pipeline, SearchPostBody body,
             .Select(v => v!.Value)
             .ToList();
     }
-    var result = await pipeline.SearchAsync(new SearchRequest(body.Query, body.MaxResults ?? 20, body.Tags, body.Since, body.Until, kinds), ct);
+    var result = await pipeline.SearchAsync(new SearchRequest(body.Query, body.MaxResults ?? 20, body.Tags, body.Since, body.Until, kinds, body.MaxTokens), ct);
     return Results.Ok(new
     {
         totalCandidates = result.TotalCandidates,
@@ -397,7 +397,8 @@ public sealed record SearchPostBody(
     IReadOnlyList<string>? Tags = null,
     DateTimeOffset? Since = null,
     DateTimeOffset? Until = null,
-    IReadOnlyList<string>? Kinds = null);
+    IReadOnlyList<string>? Kinds = null,
+    int? MaxTokens = null);
 
 public sealed record SecretDataPostBody(string Path, Dictionary<string, string>? Keys);
 public sealed record EvalPerQuery(Guid NoteId, string Query, int Rank, int TotalCandidates);

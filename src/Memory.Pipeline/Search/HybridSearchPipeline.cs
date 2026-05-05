@@ -78,8 +78,28 @@ internal sealed class HybridSearchPipeline(
         var reranked = await reranker.RerankAsync(request.Query, decayed, ct).ConfigureAwait(false);
         var top = reranked.Take(request.MaxResults).ToList();
 
+        // Optional token-budget pack — keep top-by-score until adding the next hit would
+        // exceed MaxTokens. Conservative estimator (chars / 3.8) so we round up tokens
+        // and leave a margin under the model's actual window.
+        if (request.MaxTokens is { } budget && budget > 0 && top.Count > 0)
+        {
+            var packed = new List<SearchHit>(top.Count);
+            var used = 0;
+            foreach (var h in top)
+            {
+                var cost = EstimateTokens(h.Content) + 32;  // 32 = JSON overhead per hit
+                if (packed.Count > 0 && used + cost > budget) break;
+                packed.Add(h);
+                used += cost;
+            }
+            top = packed;
+        }
+
         return new SearchResult(top, fused.Count);
     }
+
+    private static int EstimateTokens(string text) =>
+        string.IsNullOrEmpty(text) ? 0 : Math.Max(1, (int)Math.Ceiling(text.Length / 3.8));
 
     private async Task<IReadOnlyList<SearchHit>> ApplyTimeDecayAsync(IReadOnlyList<SearchHit> hits, CancellationToken ct)
     {
