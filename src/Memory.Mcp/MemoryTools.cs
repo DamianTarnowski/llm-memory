@@ -33,9 +33,12 @@ public static class MemoryTools
 
         var result = await pipeline.IngestAsync(new IngestionRequest(source, content, when), ct);
         return new SaveEpisodeResponse(
-            result.EpisodeId.ToString(),
-            result.Notes.Select(n => n.ToString()).ToArray(),
-            result.EntitiesUpserted.Select(e => e.ToString()).ToArray());
+            EpisodeId: result.EpisodeId?.ToString() ?? "",
+            NoteIds: result.Notes.Select(n => n.ToString()).ToArray(),
+            EntityIds: result.EntitiesUpserted.Select(e => e.ToString()).ToArray(),
+            Skipped: result.Skipped,
+            SkipReason: result.SkipReason,
+            ImportanceScore: result.ImportanceScore);
     }
 
     [McpServerTool(Name = "search_memory")]
@@ -156,7 +159,10 @@ public static class MemoryTools
 public sealed record SaveEpisodeResponse(
     string EpisodeId,
     IReadOnlyList<string> NoteIds,
-    IReadOnlyList<string> EntityIds);
+    IReadOnlyList<string> EntityIds,
+    bool Skipped = false,
+    string? SkipReason = null,
+    double? ImportanceScore = null);
 
 public sealed record ReflectMemoryResponse(
     string ReflectionId,

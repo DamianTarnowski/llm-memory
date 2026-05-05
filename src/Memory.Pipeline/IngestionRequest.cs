@@ -9,6 +9,9 @@ public sealed record IngestionRequest(
     IReadOnlyDictionary<string, string>? Metadata = null);
 
 public sealed record IngestionResult(
-    EpisodeId EpisodeId,
+    EpisodeId? EpisodeId,
     IReadOnlyList<NoteId> Notes,
-    IReadOnlyList<EntityId> EntitiesUpserted);
+    IReadOnlyList<EntityId> EntitiesUpserted,
+    bool Skipped = false,
+    string? SkipReason = null,
+    double? ImportanceScore = null);

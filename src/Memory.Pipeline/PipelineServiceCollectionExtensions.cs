@@ -32,7 +32,11 @@ public static class PipelineServiceCollectionExtensions
         services.AddOptions<QueryExpansionOptions>()
             .Bind(configuration.GetSection(QueryExpansionOptions.SectionName));
 
+        services.AddOptions<SaveFilterOptions>()
+            .Bind(configuration.GetSection(SaveFilterOptions.SectionName));
+
         services.AddScoped<IExtractor, LlmExtractor>();
+        services.AddScoped<IImportanceJudge, LlmImportanceJudge>();
         services.AddScoped<INoteLinker, LlmNoteLinker>();
         services.AddScoped<IReranker, LlmReranker>();
         services.AddScoped<IGraphRetriever, PprGraphRetriever>();

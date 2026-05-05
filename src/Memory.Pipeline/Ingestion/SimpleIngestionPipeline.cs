@@ -17,7 +17,9 @@ internal sealed class SimpleIngestionPipeline(
     ILlmGateway llm,
     IExtractor extractor,
     INoteLinker linker,
+    IImportanceJudge importanceJudge,
     IOptions<LlmOptions> llmOptions,
+    IOptions<SaveFilterOptions> saveFilterOptions,
     TimeProvider time,
     ILogger<SimpleIngestionPipeline> logger) : IIngestionPipeline
 {
@@ -25,6 +27,28 @@ internal sealed class SimpleIngestionPipeline(
     {
         var scope = tenant.Require();
         var now = time.GetUtcNow();
+
+        // Optional save filter — LLM judge decides whether the candidate is worth keeping
+        // before we spend embedding + extraction cost. Disabled by default (fail-open).
+        var filterOpts = saveFilterOptions.Value;
+        if (filterOpts.Enabled)
+        {
+            var judgment = await importanceJudge.JudgeAsync(request.Source, request.Content, ct).ConfigureAwait(false);
+            logger.LogInformation("Save filter judgment: score={Score:F2} save={Save} reason={Reason}",
+                judgment.Score, judgment.Save, judgment.Reason);
+            if (!judgment.Save || judgment.Score < filterOpts.MinScore)
+            {
+                logger.LogInformation("Save filter DROPPED episode (score {Score:F2} < {MinScore:F2}).",
+                    judgment.Score, filterOpts.MinScore);
+                return new IngestionResult(
+                    EpisodeId: null,
+                    Notes: Array.Empty<NoteId>(),
+                    EntitiesUpserted: Array.Empty<EntityId>(),
+                    Skipped: true,
+                    SkipReason: judgment.Reason,
+                    ImportanceScore: judgment.Score);
+            }
+        }
 
         var extraction = await extractor.ExtractAsync(request.Content, ct).ConfigureAwait(false);
 
