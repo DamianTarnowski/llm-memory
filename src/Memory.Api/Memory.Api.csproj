@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Memory.Mcp\Memory.Mcp.csproj" />
     <ProjectReference Include="..\Memory.Pipeline\Memory.Pipeline.csproj" />
+    <ProjectReference Include="..\Memory.Secrets\Memory.Secrets.csproj" />
     <ProjectReference Include="..\Memory.ServiceDefaults\Memory.ServiceDefaults.csproj" />
   </ItemGroup>
 

@@ -3,6 +3,7 @@ using Memory.Domain;
 using Memory.Llm;
 using Memory.Mcp;
 using Memory.Pipeline;
+using Memory.Secrets;
 using Memory.Storage;
 using Memory.Tenancy;
 using Microsoft.EntityFrameworkCore;
@@ -11,7 +12,14 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 
-builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+// Secret-source chain — order goes fallback → primary; later providers win the merge.
+// Each connector is opt-in: skip the call to drop a layer entirely. Each is also
+// optional internally — when its source is unconfigured/unreachable it contributes
+// no keys and the chain falls through to the previous provider.
+builder.Configuration
+    .AddSecretsJsonFile("appsettings.Local.json")     // baseline: local file (gitignored)
+    .AddSecretsInfisical()                             // secondary: opt-in via MEMORY_INFISICAL_* env vars
+    .AddSecretsAzureKeyVault();                        // primary: opt-in via MEMORY_KV_URI env var, az login
 
 builder.Services.AddOpenApi();
 
