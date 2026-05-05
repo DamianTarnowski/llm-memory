@@ -18,8 +18,8 @@ builder.AddServiceDefaults();
 // no keys and the chain falls through to the previous provider.
 builder.Configuration
     .AddSecretsJsonFile("appsettings.Local.json")     // baseline: local file (gitignored)
-    .AddSecretsInfisical()                             // secondary: opt-in via MEMORY_INFISICAL_* env vars
-    .AddSecretsAzureKeyVault();                        // primary: opt-in via MEMORY_KV_URI env var, az login
+    .AddSecretsOpenBao()                               // secondary: opt-in via MEMORY_BAO_ADDR + token / AppRole
+    .AddSecretsAzureKeyVault();                        // primary: opt-in via MEMORY_KV_URI + DefaultAzureCredential
 
 builder.Services.AddOpenApi();
 

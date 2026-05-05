@@ -1,16 +1,21 @@
 // Memory.Api uses a 3-layer secret-source chain (Memory.Secrets):
 //   layer 1 (lowest priority): this file
-//   layer 2: Infisical, opt-in via MEMORY_INFISICAL_HOST / _CLIENT_ID / _CLIENT_SECRET / _PROJECT_ID
+//   layer 2: OpenBao, opt-in via MEMORY_BAO_ADDR + MEMORY_BAO_TOKEN (or AppRole)
 //   layer 3 (highest priority): Azure Key Vault, opt-in via MEMORY_KV_URI + DefaultAzureCredential
 // Later layers override earlier ones. To use ONLY this file, leave the env vars unset.
 //
-// Azure KV secret naming: KV doesn't allow ':' in names — use '--' instead.
-//   Llm--AzureOpenAi--ApiKey  →  Llm:AzureOpenAi:ApiKey
-//   ConnectionStrings--memorydb  →  ConnectionStrings:memorydb
+// Secret naming convention (both Azure KV and OpenBao disallow ':' in key names):
+//   --  or  __  →  : (rewritten by the connector)
+//   ConnectionStrings--memorydb (KV)  →  ConnectionStrings:memorydb
+//   Llm__AzureOpenAi__ApiKey   (BAO) →  Llm:AzureOpenAi:ApiKey
 //
 // Local dev with the secondary subscription (which owns llmmemory-kv):
 //   $env:AZURE_CONFIG_DIR = "$HOME\.azure-foundry"
-//   $env:MEMORY_KV_URI = "https://llmmemory-kv.vault.azure.net/"
+//   $env:MEMORY_KV_URI    = "https://llmmemory-kv.vault.azure.net/"
+//   $env:MEMORY_BAO_ADDR  = "http://127.0.0.1:8200"
+//   $env:MEMORY_BAO_TOKEN = "<root-token-from-~/.config/openbao-dev-creds.json>"
+// Default OpenBao mount = "secret", default path = "llm-memory" — override via
+// MEMORY_BAO_KV_MOUNT / MEMORY_BAO_KV_PATHS (comma-separated).
 {
   // Use the non-superuser memory_app role — superusers bypass row-level security
   // regardless of FORCE, so connecting as postgres silently disables tenancy

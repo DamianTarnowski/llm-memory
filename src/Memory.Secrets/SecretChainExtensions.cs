@@ -12,7 +12,7 @@ namespace Memory.Secrets;
 /// <code>
 /// builder.Configuration
 ///     .AddSecretsJsonFile("appsettings.Local.json")          // baseline
-///     .AddSecretsInfisical(o => { /* opts or env vars */ })  // secondary
+///     .AddSecretsOpenBao(o => { /* opts or env vars */ })    // secondary (self-hosted)
 ///     .AddSecretsAzureKeyVault(o => o.VaultUri = "...");     // primary, wins
 /// </code>
 /// </summary>
@@ -28,13 +28,13 @@ public static class SecretChainExtensions
         return builder;
     }
 
-    public static IConfigurationBuilder AddSecretsInfisical(
+    public static IConfigurationBuilder AddSecretsOpenBao(
         this IConfigurationBuilder builder,
-        Action<InfisicalOptions>? configure = null)
+        Action<OpenBaoOptions>? configure = null)
     {
-        var opts = new InfisicalOptions();
+        var opts = new OpenBaoOptions();
         configure?.Invoke(opts);
-        builder.Add(new InfisicalConnector(opts));
+        builder.Add(new OpenBaoConnector(opts));
         return builder;
     }
 
