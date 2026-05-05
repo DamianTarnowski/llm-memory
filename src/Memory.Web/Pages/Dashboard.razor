@@ -1,0 +1,226 @@
+@page "/dashboard"
+@inject ApiClient Api
+
+<PageTitle>Memory — Dashboard</PageTitle>
+
+<h1>Dashboard</h1>
+
+@if (loading)
+{
+    <p><em>Loading…</em></p>
+}
+else if (error is not null)
+{
+    <div class="alert alert-danger">@error</div>
+}
+else
+{
+    <div class="stat-row">
+        <div class="stat-card stat-primary">
+            <div class="stat-value">@episodes.Count</div>
+            <div class="stat-label">Episodes</div>
+        </div>
+        <div class="stat-card stat-success">
+            <div class="stat-value">@notes.Count</div>
+            <div class="stat-label">Notes</div>
+        </div>
+        <div class="stat-card stat-info">
+            <div class="stat-value">@entities.Count</div>
+            <div class="stat-label">Entities</div>
+        </div>
+        <div class="stat-card stat-warning">
+            <div class="stat-value">@edges.Count</div>
+            <div class="stat-label">Edges</div>
+            <div class="stat-sub">@activeEdges active · @invalidatedEdges superseded</div>
+        </div>
+        <div class="stat-card stat-secondary">
+            <div class="stat-value">@reflections.Count</div>
+            <div class="stat-label">Reflections</div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-lg-7">
+            <div class="card p-3">
+                <h5 class="mb-3">Notes per day (last 30 days)</h5>
+                @if (notesByDay.Length == 0 || notesByDay.All(d => d.Count == 0))
+                {
+                    <p class="text-muted small">No notes in window.</p>
+                }
+                else
+                {
+                    <svg viewBox="0 0 600 160" class="sparkline">
+                        @{
+                            var maxN = Math.Max(1, notesByDay.Max(d => d.Count));
+                            var barW = 600.0 / notesByDay.Length;
+                        }
+                        @for (int i = 0; i < notesByDay.Length; i++)
+                        {
+                            var d = notesByDay[i];
+                            var h = 140.0 * d.Count / maxN;
+                            var x = i * barW + 1;
+                            var y = 150 - h;
+                            <rect x="@x.ToString("F1")" y="@y.ToString("F1")" width="@(barW - 2).ToString("F1")"
+                                  height="@h.ToString("F1")" fill="#14b8a6" rx="2">
+                                <title>@d.Date.ToString("yyyy-MM-dd"): @d.Count notes</title>
+                            </rect>
+                        }
+                        <line x1="0" y1="150" x2="600" y2="150" stroke="#cbd5e1" stroke-width="1" />
+                    </svg>
+                    <div class="d-flex justify-content-between text-muted small mt-1">
+                        <span>@notesByDay[0].Date.ToString("MMM d")</span>
+                        <span>@notesByDay[^1].Date.ToString("MMM d")</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="card p-3">
+                <h5 class="mb-3">Note kinds</h5>
+                @if (noteKindCounts.Count == 0)
+                {
+                    <p class="text-muted small">No notes.</p>
+                }
+                else
+                {
+                    @foreach (var (kind, count) in noteKindCounts.OrderByDescending(kv => kv.Value))
+                    {
+                        var pct = 100.0 * count / notes.Count;
+                        <div class="kind-row">
+                            <span class="kind-label">@kind</span>
+                            <div class="kind-bar">
+                                <div class="kind-fill @(KindClass(kind))" style="width: @pct.ToString("F1")%"></div>
+                            </div>
+                            <span class="kind-count text-muted small">@count</span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-lg-7">
+            <div class="card p-3">
+                <h5 class="mb-3">Recent reflections</h5>
+                @if (reflections.Count == 0)
+                {
+                    <p class="text-muted small">No reflections yet.</p>
+                }
+                else
+                {
+                    @foreach (var r in reflections.Take(5))
+                    {
+                        <div class="reflection-row">
+                            <div class="d-flex justify-content-between align-items-baseline">
+                                <span class="badge bg-secondary">@r.Scope</span>
+                                <span class="text-muted small">@r.GeneratedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm") · <code>@r.GeneratorModel</code></span>
+                            </div>
+                            <div class="reflection-summary mt-1">@(Truncate(r.Summary, 280))</div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="card p-3">
+                <h5 class="mb-3">Recent entities</h5>
+                @if (entities.Count == 0)
+                {
+                    <p class="text-muted small">No entities.</p>
+                }
+                else
+                {
+                    @foreach (var e in entities.OrderByDescending(e => e.LastSeenAt).Take(10))
+                    {
+                        <div class="entity-row">
+                            <code class="entity-name">@e.Name</code>
+                            <span class="entity-kind text-muted small">@e.Kind</span>
+                            <span class="entity-when text-muted small">@e.LastSeenAt.LocalDateTime.ToString("MMM d")</span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    bool loading = true;
+    string? error;
+
+    List<EpisodeDto> episodes = new();
+    List<NoteDto> notes = new();
+    List<EntityDto> entities = new();
+    List<EdgeDto> edges = new();
+    List<ReflectionDto> reflections = new();
+
+    int activeEdges;
+    int invalidatedEdges;
+
+    DayBucket[] notesByDay = Array.Empty<DayBucket>();
+    Dictionary<string, int> noteKindCounts = new();
+
+    record DayBucket(DateTime Date, int Count);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            episodes = await Api.ListEpisodesAsync(500);
+            notes = await Api.ListNotesAsync(500);
+            entities = await Api.ListEntitiesAsync(limit: 200);
+            edges = await Api.ListEdgesAsync(1000);
+            reflections = await Api.ListReflectionsAsync(20);
+
+            activeEdges = edges.Count(e => e.InvalidatedAt is null);
+            invalidatedEdges = edges.Count - activeEdges;
+
+            BuildHistogram();
+            BuildKindCounts();
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    void BuildHistogram()
+    {
+        var today = DateTime.UtcNow.Date;
+        var start = today.AddDays(-29);
+        var byDay = notes
+            .GroupBy(n => n.CreatedAt.UtcDateTime.Date)
+            .ToDictionary(g => g.Key, g => g.Count());
+        notesByDay = Enumerable.Range(0, 30)
+            .Select(i => start.AddDays(i))
+            .Select(d => new DayBucket(d, byDay.TryGetValue(d, out var c) ? c : 0))
+            .ToArray();
+    }
+
+    void BuildKindCounts()
+    {
+        noteKindCounts = notes
+            .GroupBy(n => string.IsNullOrEmpty(n.Kind) ? "General" : n.Kind)
+            .ToDictionary(g => g.Key, g => g.Count());
+    }
+
+    static string KindClass(string kind) => kind switch
+    {
+        "Decision"    => "kind-fill-decision",
+        "Learning"    => "kind-fill-learning",
+        "Error"       => "kind-fill-error",
+        "Pattern"     => "kind-fill-pattern",
+        "Observation" => "kind-fill-observation",
+        _             => "kind-fill-general",
+    };
+
+    static string Truncate(string s, int n) =>
+        string.IsNullOrEmpty(s) ? "" : s.Length <= n ? s : s[..n].TrimEnd() + "…";
+}
