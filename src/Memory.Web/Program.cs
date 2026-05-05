@@ -10,10 +10,16 @@ var tenantSettings = new TenantSettings();
 builder.Configuration.GetSection("Tenant").Bind(tenantSettings);
 builder.Services.AddSingleton(tenantSettings);
 
-builder.Services.AddTransient<TenantHeaderHandler>();
+builder.Services.AddSingleton<AuthService>();
+builder.Services.AddTransient<BearerTokenHandler>();
 
 builder.Services
     .AddHttpClient<ApiClient>(client => client.BaseAddress = new Uri(tenantSettings.ApiBaseUrl))
-    .AddHttpMessageHandler<TenantHeaderHandler>();
+    .AddHttpMessageHandler<BearerTokenHandler>();
 
-await builder.Build().RunAsync();
+var host = builder.Build();
+// Hydrate the auth token from localStorage before the first render so refreshes
+// don't briefly run as the unauthenticated dev fallback.
+var auth = host.Services.GetRequiredService<AuthService>();
+await auth.LoadAsync();
+await host.RunAsync();

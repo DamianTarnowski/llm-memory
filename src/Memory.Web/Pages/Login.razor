@@ -1,0 +1,77 @@
+@page "/login"
+@inject AuthService Auth
+@inject NavigationManager Nav
+@inject ApiClient Api
+
+<PageTitle>Memory — Login</PageTitle>
+
+<div class="login-card">
+    <h1>🔑 Sign in</h1>
+    <p class="text-muted">Paste a Memory.Api bearer token. Generate one with
+        <code>memory api-key create --org … --user … --project … --name …</code>.</p>
+
+    @if (Auth.IsAuthenticated)
+    {
+        <div class="alert alert-success">
+            Signed in. Token <code>@Mask(Auth.Token)</code> is active and stored in this browser.
+        </div>
+        <button class="btn btn-outline-danger" @onclick="LogoutAsync">Sign out (clear token)</button>
+        <a class="btn btn-link" href="">Back home</a>
+    }
+    else
+    {
+        <div class="input-group mb-3">
+            <input class="form-control" type="password" @bind="token" @bind:event="oninput"
+                   placeholder="memk_…" autocomplete="off" />
+            <button class="btn btn-primary" @onclick="SaveAsync" disabled="@(string.IsNullOrWhiteSpace(token) || saving)">
+                @(saving ? "Verifying…" : "Sign in")
+            </button>
+        </div>
+        @if (error is not null)
+        {
+            <div class="alert alert-danger">@error</div>
+        }
+        <p class="text-muted small">
+            Tokens are stored in this browser's <code>localStorage</code> and sent as
+            <code>Authorization: Bearer …</code> on every API call. Sign out clears the token.
+            With no token, the UI falls back to <code>X-Memory-*</code> tenant headers from
+            <code>appsettings.json</code> — fine for local dev, not for shared environments.
+        </p>
+    }
+</div>
+
+@code {
+    string token = "";
+    bool saving;
+    string? error;
+
+    async Task SaveAsync()
+    {
+        saving = true; error = null;
+        try
+        {
+            await Auth.SetAsync(token.Trim());
+            // Page reload picks up the new bearer handler.
+            Nav.NavigateTo("/", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    async Task LogoutAsync()
+    {
+        await Auth.SetAsync(null);
+        Nav.NavigateTo("/", forceLoad: true);
+    }
+
+    static string Mask(string? token) =>
+        string.IsNullOrEmpty(token) ? "(none)" :
+        token.Length < 12 ? "••••" :
+        $"{token[..6]}…{token[^4..]}";
+}
