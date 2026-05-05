@@ -12,6 +12,7 @@ public static class LlmServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddSingleton<ILlmGateway, LlmGateway>();
+        services.AddScoped<IImageDescriber, LlmImageDescriber>();
 
         return services;
     }

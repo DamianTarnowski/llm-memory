@@ -246,16 +246,51 @@ app.MapPost("/api/chat", async (
 
 app.MapPost("/api/episodes", async (
     IIngestionPipeline pipeline,
+    IImageDescriber describer,
     Memory.Api.IngestEpisodeRequest body,
     CancellationToken ct) =>
 {
-    if (string.IsNullOrWhiteSpace(body.Content))
+    if (string.IsNullOrWhiteSpace(body.Content) && (body.Images is null || body.Images.Count == 0))
     {
-        return Results.BadRequest(new { error = "content is required" });
+        return Results.BadRequest(new { error = "content or at least one image is required" });
     }
+
+    var content = body.Content ?? string.Empty;
+
+    // Multimodal — describe each image and prepend to the content. The captioner
+    // produces dense, retrievable text; the rest of the pipeline (extractor,
+    // embedder, A-MEM linker, search) treats the captioned image as plain text.
+    if (body.Images is { Count: > 0 } images)
+    {
+        var captions = new System.Text.StringBuilder();
+        foreach (var img in images)
+        {
+            if (string.IsNullOrEmpty(img.Data)) continue;
+            byte[] bytes;
+            try { bytes = Convert.FromBase64String(img.Data); }
+            catch (FormatException) { continue; }
+            var mime = string.IsNullOrEmpty(img.MimeType) ? "image/png" : img.MimeType;
+            try
+            {
+                var caption = await describer.DescribeAsync(bytes, mime, ct).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(caption))
+                {
+                    captions.AppendLine($"[image: {(string.IsNullOrEmpty(img.Caption) ? mime : img.Caption)}]");
+                    captions.AppendLine(caption);
+                    captions.AppendLine();
+                }
+            }
+            catch { /* skip non-vision-capable provider failures */ }
+        }
+        if (captions.Length > 0)
+        {
+            content = captions.ToString() + (string.IsNullOrEmpty(content) ? "" : "\n" + content);
+        }
+    }
+
     var result = await pipeline.IngestAsync(new IngestionRequest(
         Source: body.Source ?? "api",
-        Content: body.Content,
+        Content: content,
         OccurredAt: body.OccurredAt,
         Metadata: body.Metadata),
         ct);
@@ -502,7 +537,10 @@ namespace Memory.Api
         string Content,
         string? Source = null,
         DateTimeOffset? OccurredAt = null,
-        Dictionary<string, string>? Metadata = null);
+        Dictionary<string, string>? Metadata = null,
+        IReadOnlyList<EpisodeImage>? Images = null);
+
+    public sealed record EpisodeImage(string Data, string? MimeType = null, string? Caption = null);
 
     public sealed record ChatRequestBody(
         string Query,
