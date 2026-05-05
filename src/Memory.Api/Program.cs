@@ -256,6 +256,102 @@ app.MapDelete("/api/secrets/data", async (Memory.Api.VaultClientHolder vaultHold
     return Results.NoContent();
 });
 
+// --- /api/eval/* — retrieval evaluation harness -------------------------
+//   gen-queries: for each note, LLM generates one realistic question the note
+//   answers. The note's id is the gold answer. run: pipeline.search per
+//   question, measure rank of the gold note in results, aggregate to
+//   Recall@K + MRR. Used to compare ablations across pipeline configs.
+
+app.MapPost("/api/eval/queries", async (
+    Memory.Api.EvalQueriesRequest req,
+    MemoryDbContext db,
+    ILlmGateway llm,
+    CancellationToken ct) =>
+{
+    var count = Math.Clamp(req.Count ?? 30, 1, 200);
+    var notes = await db.Notes
+        .Where(n => n.SupersededAt == null)
+        .OrderByDescending(n => n.CreatedAt)
+        .Take(count)
+        .Select(n => new { n.Id, n.Content, n.ContextDescription })
+        .ToListAsync(ct);
+
+    const string sysPrompt = """
+        You are generating evaluation queries for a personal knowledge-base retriever.
+        Given a single note, output ONE realistic, specific question that a user might
+        type into a search box whose answer is contained in this note. The question
+        should be standalone (not require additional context to make sense) and should
+        NOT quote the note verbatim — paraphrase the topic.
+        Output ONLY the question, no preamble, no quote marks, no trailing punctuation
+        beyond a question mark.
+        """;
+
+    var results = new List<object>();
+    var chat = llm.GetChat();
+    foreach (var n in notes)
+    {
+        var messages = new List<Microsoft.Extensions.AI.ChatMessage>
+        {
+            new(Microsoft.Extensions.AI.ChatRole.System, sysPrompt),
+            new(Microsoft.Extensions.AI.ChatRole.User, n.Content),
+        };
+        try
+        {
+            var resp = await chat.GetResponseAsync(messages, cancellationToken: ct).ConfigureAwait(false);
+            var query = (resp.Text ?? "").Trim().Trim('"');
+            if (string.IsNullOrEmpty(query)) continue;
+            results.Add(new { noteId = n.Id.Value, query, contentPreview = n.Content[..Math.Min(120, n.Content.Length)] });
+        }
+        catch { /* skip notes the LLM rejects */ }
+    }
+
+    return Results.Ok(new { count = results.Count, queries = results });
+});
+
+app.MapPost("/api/eval/run", async (
+    Memory.Api.EvalRunRequest req,
+    ISearchPipeline pipeline,
+    CancellationToken ct) =>
+{
+    if (req.Queries is null or { Count: 0 })
+    {
+        return Results.BadRequest(new { error = "queries[] is required" });
+    }
+    var topK = Math.Clamp(req.TopK ?? 10, 1, 50);
+
+    var perQuery = new List<EvalPerQuery>(req.Queries.Count);
+    foreach (var q in req.Queries)
+    {
+        var result = await pipeline.SearchAsync(new SearchRequest(q.Query, topK), ct).ConfigureAwait(false);
+        var rank = -1;
+        for (var i = 0; i < result.Hits.Count; i++)
+        {
+            if (result.Hits[i].NoteId.Value == q.NoteId)
+            {
+                rank = i + 1;
+                break;
+            }
+        }
+        perQuery.Add(new EvalPerQuery(q.NoteId, q.Query, rank, result.TotalCandidates));
+    }
+
+    int Recall(int k) => perQuery.Count(p => p.Rank > 0 && p.Rank <= k);
+    var n = perQuery.Count;
+    double Mrr() => n == 0 ? 0 : perQuery.Sum(p => p.Rank > 0 ? 1.0 / p.Rank : 0.0) / n;
+
+    return Results.Ok(new
+    {
+        n,
+        recallAt1 = n == 0 ? 0 : (double)Recall(1) / n,
+        recallAt3 = n == 0 ? 0 : (double)Recall(3) / n,
+        recallAt5 = n == 0 ? 0 : (double)Recall(5) / n,
+        recallAt10 = n == 0 ? 0 : (double)Recall(Math.Min(10, topK)) / n,
+        mrr = Mrr(),
+        notFound = perQuery.Count(p => p.Rank < 0),
+        perQuery,
+    });
+});
+
 app.MapMcp("/mcp");
 
 app.Run();
@@ -268,5 +364,13 @@ public sealed record SearchPostBody(
     DateTimeOffset? Until = null);
 
 public sealed record SecretDataPostBody(string Path, Dictionary<string, string>? Keys);
+public sealed record EvalPerQuery(Guid NoteId, string Query, int Rank, int TotalCandidates);
+
+namespace Memory.Api
+{
+    public sealed record EvalQueriesRequest(int? Count);
+    public sealed record EvalRunRequest(IReadOnlyList<EvalQueryItem> Queries, int? TopK);
+    public sealed record EvalQueryItem(Guid NoteId, string Query);
+}
 
 public partial class Program;
