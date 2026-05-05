@@ -20,6 +20,7 @@ internal sealed class HybridSearchPipeline(
     IGraphRetriever graphRetriever,
     IQueryExpander queryExpander,
     IOptions<TimeDecayOptions> timeDecayOptions,
+    IOptions<AbstentionOptions> abstentionOptions,
     TimeProvider time) : ISearchPipeline
 {
     private const int CandidateMultiplier = 4;     // pull 4× max from each retriever before fusion
@@ -77,6 +78,38 @@ internal sealed class HybridSearchPipeline(
 
         var reranked = await reranker.RerankAsync(request.Query, decayed, ct).ConfigureAwait(false);
         var top = reranked.Take(request.MaxResults).ToList();
+
+        // Optional abstention check — if the reranker (or fusion when no rerank ran)
+        // can't surface a confident hit, signal it explicitly instead of feeding the
+        // caller weak retrieves it might mis-interpret as authoritative.
+        var abstainOpts = abstentionOptions.Value;
+        if (abstainOpts.Enabled)
+        {
+            string? abstainReason = null;
+            if (top.Count == 0)
+            {
+                abstainReason = fused.Count == 0
+                    ? "No candidates matched the query across vector / BM25 / graph."
+                    : "All candidates scored below the reranker threshold.";
+            }
+            else if (top[0].Provenance?.RerankerScore is { } topRer && topRer < abstainOpts.MinTopScore)
+            {
+                abstainReason = $"Top reranker score {topRer:F2} below confidence threshold {abstainOpts.MinTopScore:F2}.";
+            }
+            else if (top[0].Provenance?.RerankerScore is null && top[0].Score < abstainOpts.MinFusedScore)
+            {
+                // Reranker fell back to RRF order (every candidate filtered as irrelevant)
+                // AND the top RRF score is below the multi-retriever-reinforcement floor —
+                // i.e. only one retriever contributed and weakly. Real signal across two
+                // retrievers gives ~2/(60+rank) ~= 0.033 at rank 1.
+                abstainReason = $"Reranker filtered all candidates; fallback RRF score {top[0].Score:F4} indicates no real overlap.";
+            }
+
+            if (abstainReason is not null)
+            {
+                return new SearchResult(Array.Empty<SearchHit>(), fused.Count, Abstain: true, AbstainReason: abstainReason);
+            }
+        }
 
         // Optional token-budget pack — keep top-by-score until adding the next hit would
         // exceed MaxTokens. Conservative estimator (chars / 3.8) so we round up tokens

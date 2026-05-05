@@ -198,6 +198,8 @@ app.MapPost("/api/search", async (ISearchPipeline pipeline, SearchPostBody body,
     return Results.Ok(new
     {
         totalCandidates = result.TotalCandidates,
+        abstain = result.Abstain,
+        abstainReason = result.AbstainReason,
         hits = result.Hits.Select(h => new
         {
             noteId = h.NoteId.Value,

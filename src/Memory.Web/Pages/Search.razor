@@ -42,7 +42,21 @@
     <div class="alert alert-danger">@error</div>
 }
 
-@if (result is not null)
+@if (result is not null && result.Abstain)
+{
+    <div class="alert alert-warning">
+        <strong>No relevant memory found.</strong>
+        @if (!string.IsNullOrEmpty(result.AbstainReason))
+        {
+            <span class="text-muted small ms-2">(@result.AbstainReason)</span>
+        }
+        @if (result.TotalCandidates > 0)
+        {
+            <div class="text-muted small mt-1">@result.TotalCandidates candidates were evaluated but none reached the confidence threshold.</div>
+        }
+    </div>
+}
+else if (result is not null)
 {
     <p class="text-muted">@result.Hits.Count hits / @result.TotalCandidates candidates</p>
     @foreach (var hit in result.Hits)

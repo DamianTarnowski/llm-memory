@@ -34,4 +34,14 @@ public sealed record SearchHitProvenance(
     double GraphScore,
     double? RerankerScore);
 
-public sealed record SearchResult(IReadOnlyList<SearchHit> Hits, int TotalCandidates);
+public sealed record SearchResult(
+    IReadOnlyList<SearchHit> Hits,
+    int TotalCandidates,
+    /// <summary>
+    /// True when the pipeline judges no hit relevant enough to surface.
+    /// LongMemEval treats abstention ("I don't know") as a core memory ability
+    /// — it's better to admit there's no good answer than to surface a weak
+    /// one and have the caller / agent confidently misuse it.
+    /// </summary>
+    bool Abstain = false,
+    string? AbstainReason = null);

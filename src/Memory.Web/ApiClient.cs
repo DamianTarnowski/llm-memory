@@ -87,7 +87,7 @@ public sealed record SearchProvenanceDto(
     double Bm25Score,
     double GraphScore,
     double? RerankerScore);
-public sealed record SearchResultDto(int TotalCandidates, List<SearchHitDto> Hits);
+public sealed record SearchResultDto(int TotalCandidates, List<SearchHitDto> Hits, bool Abstain = false, string? AbstainReason = null);
 public sealed record EdgeDto(Guid Id, Guid From, Guid To, string Relation, DateTimeOffset RecordedAt, DateTimeOffset? InvalidatedAt);
 public sealed record SecretsStatusDto(bool Configured, string Address, string Mount);
 public sealed record SecretPathsDto(string[] Paths);

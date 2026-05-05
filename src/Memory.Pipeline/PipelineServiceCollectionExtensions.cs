@@ -35,6 +35,9 @@ public static class PipelineServiceCollectionExtensions
         services.AddOptions<SaveFilterOptions>()
             .Bind(configuration.GetSection(SaveFilterOptions.SectionName));
 
+        services.AddOptions<AbstentionOptions>()
+            .Bind(configuration.GetSection(AbstentionOptions.SectionName));
+
         services.AddScoped<IExtractor, LlmExtractor>();
         services.AddScoped<IImportanceJudge, LlmImportanceJudge>();
         services.AddScoped<INoteLinker, LlmNoteLinker>();
