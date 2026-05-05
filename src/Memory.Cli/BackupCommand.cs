@@ -21,6 +21,7 @@ internal static class BackupCommand
         {
             "dump" => await DumpAsync(args[1..]).ConfigureAwait(false),
             "restore" => await RestoreAsync(args[1..]).ConfigureAwait(false),
+            "download" => await DownloadAsync(args[1..]).ConfigureAwait(false),
             _ => Fail($"Unknown backup sub-command '{args[0]}'."),
         };
     }
@@ -28,18 +29,61 @@ internal static class BackupCommand
     private static void PrintHelp() =>
         Console.WriteLine(
             """
-            memory backup — export / import tenant data as JSON.
+            memory backup — export / import tenant data.
 
             Sub-commands:
-              dump     Export an org's organizations/users/memberships/projects/episodes/notes/
-                       note_embeddings/note_entity_mentions/note_relations/reflections to a
-                       JSON file. AGE entities/edges are NOT exported (graph rebuild post-restore).
-              restore  Replay a dump file into a fresh database (idempotent inserts via on-conflict).
+              dump      Direct DB dump of a single tenant to a JSON file (admin path —
+                        needs the postgres connection string).
+              restore   Replay a dump file into a fresh database (idempotent on-conflict).
+              download  HTTP-based tenant-scoped .zip download via /api/backup/download.
+                        Works against the cloud deploy; bearer-token auth. Includes JSON
+                        per entity type + Markdown bundle of active notes.
 
             Examples:
               memory backup dump    --connection-string "..." --org <uuid> --output backup.json
               memory backup restore --connection-string "..." --input backup.json
+              memory backup download --api-url https://your-api/ --api-key memk_… --out backup.zip
             """);
+
+    private static async Task<int> DownloadAsync(string[] args)
+    {
+        var apiUrl = Environment.GetEnvironmentVariable("MEMORY_API_URL") ?? "http://localhost:5566";
+        var apiKey = Environment.GetEnvironmentVariable("MEMORY_API_KEY");
+        var outPath = "./memory-backup.zip";
+        var includeEmbeddings = true;
+        var includeImageEmbeddings = true;
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--api-url" when i + 1 < args.Length: apiUrl = args[++i]; break;
+                case "--api-key" when i + 1 < args.Length: apiKey = args[++i]; break;
+                case "--out" when i + 1 < args.Length: outPath = args[++i]; break;
+                case "--no-embeddings": includeEmbeddings = false; break;
+                case "--no-image-embeddings": includeImageEmbeddings = false; break;
+            }
+        }
+        if (apiKey is null) return Fail("--api-key (or MEMORY_API_KEY) required.");
+
+        using var http = new HttpClient { BaseAddress = new Uri(apiUrl), Timeout = TimeSpan.FromMinutes(10) };
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+
+        var url = $"/api/backup/download?includeEmbeddings={includeEmbeddings}&includeImageEmbeddings={includeImageEmbeddings}";
+        Console.WriteLine($"Streaming backup from {apiUrl}{url}…");
+        using var resp = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode)
+        {
+            return Fail($"API returned HTTP {(int)resp.StatusCode}: {await resp.Content.ReadAsStringAsync().ConfigureAwait(false)}");
+        }
+
+        await using var stream = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        await using var file = File.Create(outPath);
+        await stream.CopyToAsync(file).ConfigureAwait(false);
+        var size = new FileInfo(outPath).Length;
+        Console.WriteLine($"Wrote {size:N0} bytes → {Path.GetFullPath(outPath)}");
+        return 0;
+    }
 
     private static async Task<int> DumpAsync(string[] args)
     {

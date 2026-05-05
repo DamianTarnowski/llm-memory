@@ -550,6 +550,7 @@ app.MapPost("/api/eval/run", async (
 });
 
 app.MapWebhooks();
+app.MapBackup();
 app.MapMcp("/mcp");
 
 app.Run();
