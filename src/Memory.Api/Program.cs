@@ -45,6 +45,12 @@ builder.Services
 // reference-type / class-constraint complaints on AddSingleton.
 builder.Services.AddSingleton(new Memory.Api.VaultClientHolder(VaultClientFactory.FromEnvironment()));
 
+// Markdown folder watcher — first connector. Scans a configured folder for *.md
+// files and ingests them. Disabled unless MarkdownConnector:Enabled=true.
+builder.Services.AddOptions<Memory.Api.MarkdownConnectorOptions>()
+    .Bind(builder.Configuration.GetSection(Memory.Api.MarkdownConnectorOptions.SectionName));
+builder.Services.AddHostedService<Memory.Api.MarkdownFolderWatcher>();
+
 var app = builder.Build();
 
 app.MapDefaultEndpoints();

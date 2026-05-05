@@ -51,5 +51,13 @@
     "Enabled": false,
     "InitialDelay": "00:05:00",
     "Interval": "06:00:00"
+  },
+  "MarkdownConnector": {
+    "Enabled": false,
+    "Path": "C:/Users/me/notes",
+    "OrganizationId": "00000000-0000-0000-0000-000000000000",
+    "UserId": "00000000-0000-0000-0000-000000000000",
+    "ProjectId": "00000000-0000-0000-0000-000000000000",
+    "PollIntervalSeconds": 60
   }
 }
