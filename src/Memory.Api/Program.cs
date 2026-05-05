@@ -511,6 +511,7 @@ app.MapPost("/api/eval/run", async (
     });
 });
 
+app.MapWebhooks();
 app.MapMcp("/mcp");
 
 app.Run();
