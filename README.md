@@ -209,16 +209,16 @@ Per project rule (in `~/.claude/CLAUDE.md`), tests against the LLM layer **alway
 
 ---
 
-## What's planned next
+## Documentation
 
-In rough priority order — see TaskList in the repo for the live queue:
+Detailed docs live under [`docs/`](docs/):
 
-1. Markdown import/export (Obsidian round-trip).
-2. Context-budget retrieval (`max_tokens` instead of `max_results`).
-3. Streaming chat (SSE).
-4. Abstention signal in search (LongMemEval-style "no relevant memory").
-5. Web UI auth (replace hardcoded TenantSettings).
-6. Connector — markdown folder watcher.
-7. Telemetry dashboard page.
-8. CI/CD via GitHub Actions.
-9. Multimodal — image embedding.
+| Doc | What it covers |
+|---|---|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module map, data flow diagrams for `save_episode` and `search_memory`, key invariants, where state lives, operational gotchas. |
+| [API.md](docs/API.md) | Every HTTP endpoint with curl examples — health, search, ingest, streaming chat, webhooks, eval, secrets admin, MCP transport. |
+| [CONFIGURATION.md](docs/CONFIGURATION.md) | Every config section + env var. Defaults, sources, the secret-source chain (Azure KV → OpenBao → JSON). |
+| [MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md) | How to wire to Claude Code, Codex CLI, Cursor, Continue, ChatGPT desktop. Cross-model usage patterns. |
+| [USE-CASES.md](docs/USE-CASES.md) | Practical setups for programming notes, health log, personal life, research, shared collaboration. |
+| [PRIVACY.md](docs/PRIVACY.md) | What leaves your machine, by default. Per-provider retention. Recommended setups for sensitive content. Threat model. |
+| [OPERATIONS.md](docs/OPERATIONS.md) | Daily start-up, healthcheck, mint API keys, backup/restore, Markdown round-trip, eval, migrations, OpenBao + Azure KV ops, troubleshooting. |
