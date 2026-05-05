@@ -82,6 +82,7 @@ internal sealed class SimpleIngestionPipeline(
                 ContextDescription = ext.ContextDescription,
                 Keywords = ext.Keywords,
                 Tags = ext.Tags,
+                Kind = ext.Kind,
                 CreatedAt = now,
             };
             notes.Add(note);

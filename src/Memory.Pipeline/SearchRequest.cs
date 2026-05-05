@@ -7,7 +7,8 @@ public sealed record SearchRequest(
     int MaxResults = 20,
     IReadOnlyList<string>? Tags = null,
     DateTimeOffset? Since = null,
-    DateTimeOffset? Until = null);
+    DateTimeOffset? Until = null,
+    IReadOnlyList<NoteKind>? Kinds = null);
 
 public sealed record SearchHit(
     NoteId NoteId,

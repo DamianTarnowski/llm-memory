@@ -12,7 +12,14 @@ internal sealed class LlmExtractor(ILlmGateway llm) : IExtractor
           split into 2-5 atomic notes, EACH a single self-contained insight in 1-3 sentences. Do
           NOT recap the whole input as one note when it covers distinct ideas — split it.
           Each note has: content, contextDescription (under 200 chars), 3-8 keywords (lowercase),
-          0-5 tags (lowercase, hyphen-separated).
+          0-5 tags (lowercase, hyphen-separated), and a kind (one of: General, Observation,
+          Decision, Learning, Error, Pattern). Pick the kind that best matches:
+            * Observation — factual statement about current state, no decision implied
+            * Decision    — a choice made with the reasoning attached
+            * Learning    — a lesson distilled from experience ("I learned X")
+            * Error       — a bug, mistake, gotcha, or what-not-to-do
+            * Pattern     — a repeating pattern, heuristic, principle, rule-of-thumb
+            * General     — fallback when none of the above clearly applies
         - entities: all entities mentioned (people, projects, concepts, places, organizations)
           with kind + attributes.
         - relationships: between entities (e.g. WORKS_AT, MENTIONS, AUTHORED, KNOWS, USES) with

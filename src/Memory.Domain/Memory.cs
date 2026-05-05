@@ -20,8 +20,29 @@ public sealed class Note
     public required string ContextDescription { get; init; }
     public List<string> Keywords { get; init; } = new();
     public List<string> Tags { get; init; } = new();
+    public NoteKind Kind { get; init; } = NoteKind.General;
     public required DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset? SupersededAt { get; init; }
+}
+
+/// <summary>
+/// Coarse memory-type ontology — five durable kinds plus a general fallback.
+/// Aligns with leading 2026 memory systems (Hindsight, LongMemEval) which
+/// consistently surface this taxonomy as a retrieval-quality lever.
+/// </summary>
+public enum NoteKind
+{
+    General = 0,
+    /// <summary>Factual statement about current state, no decision or action implied.</summary>
+    Observation = 1,
+    /// <summary>A choice made or position taken, with the reasoning attached.</summary>
+    Decision = 2,
+    /// <summary>A lesson distilled from experience — "I learned X" / "X turns out to mean Y".</summary>
+    Learning = 3,
+    /// <summary>A bug, mistake, gotcha, or what-not-to-do for next time.</summary>
+    Error = 4,
+    /// <summary>A repeating pattern, heuristic, principle, or rule-of-thumb.</summary>
+    Pattern = 5,
 }
 
 public sealed class NoteEmbedding

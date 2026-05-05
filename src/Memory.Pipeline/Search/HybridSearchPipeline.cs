@@ -213,6 +213,14 @@ internal sealed class HybridSearchPipeline(
             sql.Append(" AND n.created_at <= @until");
             cmd.Parameters.AddWithValue("until", request.Until.Value);
         }
+        if (request.Kinds is { Count: > 0 })
+        {
+            sql.Append(" AND n.kind = ANY(@kinds)");
+            cmd.Parameters.Add(new NpgsqlParameter("kinds", NpgsqlDbType.Array | NpgsqlDbType.Smallint)
+            {
+                Value = request.Kinds.Select(k => (short)k).ToArray(),
+            });
+        }
     }
 
     /// <summary>

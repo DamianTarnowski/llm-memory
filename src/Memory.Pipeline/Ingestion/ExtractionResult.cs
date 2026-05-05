@@ -7,7 +7,8 @@ public sealed record ExtractedNote(
     string Content,
     string ContextDescription,
     List<string> Keywords,
-    List<string> Tags);
+    List<string> Tags,
+    Memory.Domain.NoteKind Kind = Memory.Domain.NoteKind.General);
 
 public sealed record ExtractedEntity(
     string Name,

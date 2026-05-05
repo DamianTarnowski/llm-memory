@@ -27,6 +27,7 @@ public sealed class ApiClient(HttpClient http)
         IReadOnlyList<string>? tags = null,
         DateTimeOffset? since = null,
         DateTimeOffset? until = null,
+        IReadOnlyList<string>? kinds = null,
         CancellationToken ct = default)
     {
         var body = new
@@ -36,6 +37,7 @@ public sealed class ApiClient(HttpClient http)
             tags,
             since,
             until,
+            kinds,
         };
         var response = await http.PostAsJsonAsync("api/search", body, ct);
         response.EnsureSuccessStatusCode();
@@ -73,7 +75,7 @@ public sealed class ApiClient(HttpClient http)
 }
 
 public sealed record EpisodeDto(Guid Id, string Source, string Content, DateTimeOffset IngestedAt, DateTimeOffset? OccurredAt);
-public sealed record NoteDto(Guid Id, string Content, string ContextDescription, List<string> Keywords, List<string> Tags, DateTimeOffset CreatedAt);
+public sealed record NoteDto(Guid Id, string Content, string ContextDescription, List<string> Keywords, List<string> Tags, string Kind, DateTimeOffset CreatedAt);
 public sealed record ReflectionDto(Guid Id, string Scope, string Summary, DateTimeOffset GeneratedAt, string GeneratorModel);
 public sealed record EntityDto(Guid Id, string Name, string Kind, Dictionary<string, string> Attributes, DateTimeOffset FirstSeenAt, DateTimeOffset LastSeenAt);
 public sealed record SearchHitDto(Guid NoteId, string Content, double Score, Guid[] RelatedEntityIds, SearchProvenanceDto? Provenance);

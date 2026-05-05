@@ -113,7 +113,7 @@ app.MapGet("/api/notes", async (MemoryDbContext db, int limit = 50, Cancellation
     await db.Notes
         .OrderByDescending(n => n.CreatedAt)
         .Take(Math.Clamp(limit <= 0 ? 50 : limit, 1, 500))
-        .Select(n => new { id = n.Id.Value, content = n.Content, contextDescription = n.ContextDescription, keywords = n.Keywords, tags = n.Tags, createdAt = n.CreatedAt })
+        .Select(n => new { id = n.Id.Value, content = n.Content, contextDescription = n.ContextDescription, keywords = n.Keywords, tags = n.Tags, kind = n.Kind.ToString(), createdAt = n.CreatedAt })
         .ToListAsync(ct));
 
 app.MapGet("/api/reflections", async (MemoryDbContext db, int limit = 50, CancellationToken ct = default) =>
@@ -159,7 +159,16 @@ app.MapGet("/api/entities", async (IGraphContext graph, ITenantContext tenant, s
 
 app.MapPost("/api/search", async (ISearchPipeline pipeline, SearchPostBody body, CancellationToken ct) =>
 {
-    var result = await pipeline.SearchAsync(new SearchRequest(body.Query, body.MaxResults ?? 20, body.Tags, body.Since, body.Until), ct);
+    IReadOnlyList<NoteKind>? kinds = null;
+    if (body.Kinds is { Count: > 0 })
+    {
+        kinds = body.Kinds
+            .Select(k => Enum.TryParse<NoteKind>(k, ignoreCase: true, out var v) ? (NoteKind?)v : null)
+            .Where(v => v.HasValue)
+            .Select(v => v!.Value)
+            .ToList();
+    }
+    var result = await pipeline.SearchAsync(new SearchRequest(body.Query, body.MaxResults ?? 20, body.Tags, body.Since, body.Until, kinds), ct);
     return Results.Ok(new
     {
         totalCandidates = result.TotalCandidates,
@@ -361,7 +370,8 @@ public sealed record SearchPostBody(
     int? MaxResults,
     IReadOnlyList<string>? Tags = null,
     DateTimeOffset? Since = null,
-    DateTimeOffset? Until = null);
+    DateTimeOffset? Until = null,
+    IReadOnlyList<string>? Kinds = null);
 
 public sealed record SecretDataPostBody(string Path, Dictionary<string, string>? Keys);
 public sealed record EvalPerQuery(Guid NoteId, string Query, int Rank, int TotalCandidates);
