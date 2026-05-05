@@ -39,6 +39,12 @@ builder.Services
     .WithHttpTransport()
     .AddMemoryMcpTools();
 
+// OpenBao admin client (optional — null when MEMORY_BAO_ADDR / token are unset).
+// /api/secrets/* endpoints + the Memory.Web admin UI use this. Wrapped in a tiny
+// holder so DI can express "client may be null" without bumping into nullable-
+// reference-type / class-constraint complaints on AddSingleton.
+builder.Services.AddSingleton(new Memory.Api.VaultClientHolder(VaultClientFactory.FromEnvironment()));
+
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
@@ -177,6 +183,79 @@ app.MapPost("/api/search", async (ISearchPipeline pipeline, SearchPostBody body,
     });
 });
 
+// --- /api/secrets/* — admin proxy onto OpenBao ---------------------------
+//   Memory.Web's /secrets page hits these instead of talking to Vault directly,
+//   so the root token never leaves the API process. All endpoints return 503
+//   when no MEMORY_BAO_* env vars are configured.
+
+app.MapGet("/api/secrets/status", (Memory.Api.VaultClientHolder vaultHolder) => Results.Ok(new
+{
+    configured = vaultHolder.Client is not null,
+    address = VaultClientFactory.Address,
+    mount = VaultClientFactory.KvMount,
+}));
+
+app.MapGet("/api/secrets/paths", async (Memory.Api.VaultClientHolder vaultHolder, string? folder, CancellationToken ct) =>
+{
+    var vault = vaultHolder.Client;
+    if (vault is null) return Results.StatusCode(503);
+    try
+    {
+        var listing = await vault.V1.Secrets.KeyValue.V2.ReadSecretPathsAsync(
+            path: string.IsNullOrEmpty(folder) ? "" : folder,
+            mountPoint: VaultClientFactory.KvMount).ConfigureAwait(false);
+        return Results.Ok(new { paths = listing?.Data?.Keys?.ToArray() ?? Array.Empty<string>() });
+    }
+    catch (VaultSharp.Core.VaultApiException ex) when ((int)ex.HttpStatusCode == 404)
+    {
+        return Results.Ok(new { paths = Array.Empty<string>() });
+    }
+});
+
+app.MapGet("/api/secrets/data", async (Memory.Api.VaultClientHolder vaultHolder, string path, CancellationToken ct) =>
+{
+    var vault = vaultHolder.Client;
+    if (vault is null) return Results.StatusCode(503);
+    try
+    {
+        var read = await vault.V1.Secrets.KeyValue.V2.ReadSecretAsync(
+            path: path, mountPoint: VaultClientFactory.KvMount).ConfigureAwait(false);
+        var data = read.Data?.Data ?? new Dictionary<string, object>();
+        return Results.Ok(new
+        {
+            path,
+            keys = data.ToDictionary(kv => kv.Key, kv => kv.Value?.ToString() ?? ""),
+            version = read.Data?.Metadata?.Version ?? 0,
+            createdAt = read.Data?.Metadata?.CreatedTime,
+        });
+    }
+    catch (VaultSharp.Core.VaultApiException ex) when ((int)ex.HttpStatusCode == 404)
+    {
+        return Results.Ok(new { path, keys = new Dictionary<string, string>(), version = 0, createdAt = (DateTimeOffset?)null });
+    }
+});
+
+app.MapPut("/api/secrets/data", async (Memory.Api.VaultClientHolder vaultHolder, SecretDataPostBody body, CancellationToken ct) =>
+{
+    var vault = vaultHolder.Client;
+    if (vault is null) return Results.StatusCode(503);
+    var data = body.Keys?.ToDictionary(kv => kv.Key, kv => (object?)kv.Value) ?? new Dictionary<string, object?>();
+    var written = await vault.V1.Secrets.KeyValue.V2.WriteSecretAsync(
+        path: body.Path,
+        data: data,
+        mountPoint: VaultClientFactory.KvMount).ConfigureAwait(false);
+    return Results.Ok(new { path = body.Path, version = written?.Data?.Version ?? 0 });
+});
+
+app.MapDelete("/api/secrets/data", async (Memory.Api.VaultClientHolder vaultHolder, string path, CancellationToken ct) =>
+{
+    var vault = vaultHolder.Client;
+    if (vault is null) return Results.StatusCode(503);
+    await vault.V1.Secrets.KeyValue.V2.DeleteMetadataAsync(
+        path: path, mountPoint: VaultClientFactory.KvMount).ConfigureAwait(false);
+    return Results.NoContent();
+});
+
 app.MapMcp("/mcp");
 
 app.Run();
@@ -187,5 +266,7 @@ public sealed record SearchPostBody(
     IReadOnlyList<string>? Tags = null,
     DateTimeOffset? Since = null,
     DateTimeOffset? Until = null);
+
+public sealed record SecretDataPostBody(string Path, Dictionary<string, string>? Keys);
 
 public partial class Program;
