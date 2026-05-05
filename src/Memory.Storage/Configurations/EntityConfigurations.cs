@@ -128,6 +128,36 @@ internal sealed class NoteConfiguration : IEntityTypeConfiguration<Note>
     }
 }
 
+internal sealed class ImageEmbeddingConfiguration : IEntityTypeConfiguration<ImageEmbedding>
+{
+    public const int VertexMultimodalDimensions = 1408;
+
+    public void Configure(EntityTypeBuilder<ImageEmbedding> b)
+    {
+        b.ToTable("image_embeddings");
+        b.HasKey(e => e.Id);
+        b.Property(e => e.Id).HasColumnName("id");
+        b.Property(e => e.NoteId).HasColumnName("note_id");
+        b.Property(e => e.Project).HasColumnName("project_id");
+        b.Property(e => e.ModelId).HasColumnName("model_id").HasMaxLength(100).IsRequired();
+        b.Property(e => e.Dimensions).HasColumnName("dimensions");
+        b.Property(e => e.Embedding)
+            .HasColumnName("embedding")
+            .HasColumnType($"vector({VertexMultimodalDimensions})")
+            .HasConversion(new FloatArrayVectorConverter());
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.HasIndex(e => e.NoteId);
+        b.HasIndex(e => e.Project);
+
+        b.HasOne<Note>().WithMany()
+            .HasForeignKey(e => e.NoteId)
+            .OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Project>().WithMany()
+            .HasForeignKey(e => e.Project)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
 internal sealed class NoteEmbeddingConfiguration : IEntityTypeConfiguration<NoteEmbedding>
 {
     public const int DefaultDimensions = 3072;

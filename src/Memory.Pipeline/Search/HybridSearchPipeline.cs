@@ -19,6 +19,7 @@ internal sealed class HybridSearchPipeline(
     IReranker reranker,
     IGraphRetriever graphRetriever,
     IQueryExpander queryExpander,
+    ImageEmbedderHolder imageEmbedderHolder,
     IOptions<TimeDecayOptions> timeDecayOptions,
     IOptions<AbstentionOptions> abstentionOptions,
     TimeProvider time) : ISearchPipeline
@@ -71,7 +72,13 @@ internal sealed class HybridSearchPipeline(
             .Select((h, i) => new RankedHit(h.NoteId, h.Content, i + 1, 1.0 - h.Score, h.RelatedEntities, FromVector: false, FromBm25: false))
             .ToList();
 
-        var fused = FuseRrf(vectorHits, bm25Hits, graphHits, RrfK);
+        // Optional cross-modal image-vector retrieval — only fires when the embedder
+        // (Vertex multimodalembedding) is configured AND there are image_embeddings
+        // rows for this project. The text query is embedded in the same multimodal
+        // space, then we cosine-search image_embeddings.
+        var imageHits = await ImageVectorSearchAsync(conn, request, candidateLimit, ct).ConfigureAwait(false);
+
+        var fused = FuseRrf(vectorHits, bm25Hits, graphHits, imageHits, RrfK);
 
         // Optional time-decay: re-weight by note age before reranking.
         var decayed = await ApplyTimeDecayAsync(fused, ct).ConfigureAwait(false);
@@ -204,6 +211,63 @@ internal sealed class HybridSearchPipeline(
         return hits;
     }
 
+    private async Task<List<RankedHit>> ImageVectorSearchAsync(
+        NpgsqlConnection conn,
+        SearchRequest request,
+        int limit,
+        CancellationToken ct)
+    {
+        // No embedder configured -> nothing to search.
+        if (imageEmbedderHolder.Embedder is not { } embedder) return new List<RankedHit>();
+
+        // Embed the text query in the same multimodal space as image_embeddings.
+        // This is the key cross-modal step: 1 query embedding -> cosine vs N image
+        // embeddings -> note ids ranked by visual relevance to the query text.
+        float[] queryVec;
+        try { queryVec = await embedder.EmbedTextAsync(request.Query, ct).ConfigureAwait(false); }
+        catch { return new List<RankedHit>(); }
+
+        var pgVec = new Pgvector.Vector(queryVec);
+        var sql = new StringBuilder("""
+            SELECT n.id,
+                   n.content,
+                   ie.embedding <=> @qvec AS distance,
+                   COALESCE(
+                     (SELECT array_agg(m.entity_id)
+                      FROM memory.note_entity_mentions m
+                      WHERE m.note_id = n.id),
+                     ARRAY[]::uuid[]) AS related_entity_ids
+            FROM memory.image_embeddings ie
+            JOIN memory.notes n ON n.id = ie.note_id
+            WHERE n.superseded_at IS NULL
+            """);
+
+        await using var cmd = new NpgsqlCommand { Connection = conn };
+        cmd.Parameters.AddWithValue("qvec", pgVec);
+        cmd.Parameters.AddWithValue("limit", limit);
+        AppendFilters(sql, cmd, request);
+        sql.Append(" ORDER BY distance ASC LIMIT @limit");
+        cmd.CommandText = sql.ToString();
+
+        var hits = new List<RankedHit>();
+        var rank = 0;
+        try
+        {
+            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                rank++;
+                var noteId = new NoteId(reader.GetGuid(0));
+                var content = reader.GetString(1);
+                var distance = reader.GetDouble(2);
+                var related = ((Guid[])reader.GetValue(3)).Select(g => new EntityId(g)).ToArray();
+                hits.Add(new RankedHit(noteId, content, rank, distance, related, FromVector: false, FromBm25: false));
+            }
+        }
+        catch { /* table empty or query failed — fall through with no image hits */ }
+        return hits;
+    }
+
     private static async Task<List<RankedHit>> Bm25SearchAsync(
         NpgsqlConnection conn,
         SearchRequest request,
@@ -277,17 +341,23 @@ internal sealed class HybridSearchPipeline(
     }
 
     /// <summary>
-    /// Reciprocal Rank Fusion across three retrievers (vector, BM25, graph PPR).
-    /// A note's RRF score is the sum of 1/(k + rank_in_each_list_it_appears_in).
+    /// Reciprocal Rank Fusion across four retrievers (text-vector, BM25, graph PPR,
+    /// image-vector). A note's RRF score is the sum of 1/(k + rank_in_each_list_it_appears_in).
     /// Hits found by multiple retrievers stack contributions — that's the whole point.
     /// </summary>
-    private static List<SearchHit> FuseRrf(List<RankedHit> vector, List<RankedHit> bm25, List<RankedHit> graph, int k)
+    private static List<SearchHit> FuseRrf(
+        List<RankedHit> vector,
+        List<RankedHit> bm25,
+        List<RankedHit> graph,
+        List<RankedHit> image,
+        int k)
     {
         var pool = new Dictionary<NoteId, FusedHit>();
 
         Add(pool, vector, k, stream: Stream.Vector);
         Add(pool, bm25, k, stream: Stream.Bm25);
         Add(pool, graph, k, stream: Stream.Graph);
+        Add(pool, image, k, stream: Stream.Image);
 
         return pool.Values
             .OrderByDescending(f => f.RrfScore)
@@ -336,7 +406,7 @@ internal sealed class HybridSearchPipeline(
             .ToList();
     }
 
-    private enum Stream { Vector, Bm25, Graph }
+    private enum Stream { Vector, Bm25, Graph, Image }
 
     private static void Add(Dictionary<NoteId, FusedHit> pool, List<RankedHit> hits, int k, Stream stream)
     {
@@ -362,6 +432,12 @@ internal sealed class HybridSearchPipeline(
                 case Stream.Vector: existing.FromVector = true; existing.VectorScore = contribution; break;
                 case Stream.Bm25: existing.FromBm25 = true; existing.Bm25Score = contribution; break;
                 case Stream.Graph: existing.FromGraph = true; existing.GraphScore = contribution; break;
+                case Stream.Image: existing.FromVector = true; existing.VectorScore = Math.Max(existing.VectorScore, contribution); break;
+                    // Image-vector hits are reported under the same FromVector flag because the
+                    // SearchHitProvenance wire format doesn't have a dedicated FromImage yet —
+                    // both kinds are "embedding-similarity" matches as far as callers care.
+                    // A future iteration can expose FromImage + ImageScore if introspection
+                    // becomes useful for diagnostics or UI.
             }
         }
     }

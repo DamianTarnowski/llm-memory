@@ -43,6 +43,19 @@ public sealed class LlmOptions
         public string AdcCredentialsPath { get; set; } = string.Empty;
         public string ChatModelId { get; set; } = string.Empty;
         public string EmbeddingModelId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Region for multimodalembedding@001 (the model isn't at "global").
+        /// us-central1 is the safe default.
+        /// </summary>
+        public string ImageEmbeddingRegion { get; set; } = "us-central1";
+
+        /// <summary>
+        /// When true and Vertex creds are configured, register VertexImageEmbedder
+        /// in DI so the ingestion pipeline stores image_embeddings rows alongside
+        /// captions and the search pipeline can fuse image-vector hits.
+        /// </summary>
+        public bool ImageEmbeddingEnabled { get; set; } = false;
     }
 
     public sealed class AnthropicSettings

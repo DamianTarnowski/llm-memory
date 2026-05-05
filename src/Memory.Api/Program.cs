@@ -247,6 +247,10 @@ app.MapPost("/api/chat", async (
 app.MapPost("/api/episodes", async (
     IIngestionPipeline pipeline,
     IImageDescriber describer,
+    ImageEmbedderHolder embedderHolder,
+    MemoryDbContext db,
+    ITenantContext tenantCtx,
+    TimeProvider time,
     Memory.Api.IngestEpisodeRequest body,
     CancellationToken ct) =>
 {
@@ -256,10 +260,13 @@ app.MapPost("/api/episodes", async (
     }
 
     var content = body.Content ?? string.Empty;
+    var imageBytesList = new List<byte[]>();
 
     // Multimodal — describe each image and prepend to the content. The captioner
     // produces dense, retrievable text; the rest of the pipeline (extractor,
     // embedder, A-MEM linker, search) treats the captioned image as plain text.
+    // We also keep the raw bytes around so we can run the cross-modal embedder
+    // after extraction and link the embedding to the resulting note.
     if (body.Images is { Count: > 0 } images)
     {
         var captions = new System.Text.StringBuilder();
@@ -278,6 +285,7 @@ app.MapPost("/api/episodes", async (
                     captions.AppendLine($"[image: {(string.IsNullOrEmpty(img.Caption) ? mime : img.Caption)}]");
                     captions.AppendLine(caption);
                     captions.AppendLine();
+                    imageBytesList.Add(bytes);
                 }
             }
             catch { /* skip non-vision-capable provider failures */ }
@@ -294,6 +302,36 @@ app.MapPost("/api/episodes", async (
         OccurredAt: body.OccurredAt,
         Metadata: body.Metadata),
         ct);
+
+    // Cross-modal embedding — store the image vector keyed to the first note
+    // emitted by extraction. Skipped silently when Vertex isn't configured or
+    // ingestion was filter-skipped.
+    if (!result.Skipped && embedderHolder.Embedder is { } embedder
+        && imageBytesList.Count > 0 && result.Notes.Count > 0)
+    {
+        var scope = tenantCtx.Require();
+        var firstNote = result.Notes[0];
+        foreach (var bytes in imageBytesList)
+        {
+            try
+            {
+                var vec = await embedder.EmbedImageAsync(bytes, ct).ConfigureAwait(false);
+                db.ImageEmbeddings.Add(new ImageEmbedding
+                {
+                    Id = Guid.NewGuid(),
+                    NoteId = firstNote,
+                    Project = scope.Project,
+                    ModelId = embedder.ModelId,
+                    Dimensions = embedder.Dimensions,
+                    Embedding = vec,
+                    CreatedAt = time.GetUtcNow(),
+                });
+            }
+            catch { /* embedding failure shouldn't tank the ingest */ }
+        }
+        try { await db.SaveChangesAsync(ct).ConfigureAwait(false); }
+        catch { /* swallow — image embeddings are best-effort */ }
+    }
     return Results.Ok(new
     {
         episodeId = result.EpisodeId?.Value,

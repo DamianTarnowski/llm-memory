@@ -45,6 +45,17 @@ public enum NoteKind
     Pattern = 5,
 }
 
+public sealed class ImageEmbedding
+{
+    public required Guid Id { get; init; }
+    public required NoteId NoteId { get; init; }
+    public required ProjectId Project { get; init; }
+    public required string ModelId { get; init; }
+    public required int Dimensions { get; init; }
+    public required float[] Embedding { get; init; }
+    public required DateTimeOffset CreatedAt { get; init; }
+}
+
 public sealed class NoteEmbedding
 {
     public required NoteId NoteId { get; init; }
