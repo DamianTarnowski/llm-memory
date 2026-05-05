@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build + Domain tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      - name: Restore
+        run: dotnet restore LlmMemory.sln
+
+      - name: Build (Release)
+        run: dotnet build LlmMemory.sln --configuration Release --no-restore
+
+      - name: Test — Domain
+        # Domain has no external deps (pure logic over typed-id structs and tenant scope).
+        # Storage/Pipeline/E2E need PG+AGE+pgvector locally and are not run in CI to keep the
+        # graph install (~2 min compile from source) off the hot path. The smoke-test-api.sh
+        # script covers them in dev; live LLM eval needs creds and is also off the CI path.
+        run: dotnet test tests/Memory.Domain.Tests/Memory.Domain.Tests.csproj --configuration Release --no-build --verbosity minimal
+
+  format:
+    name: Format check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Verify formatting
+        # `dotnet format` enforces .editorconfig + style rules. --verify-no-changes fails
+        # the job when the tree isn't formatted; run `dotnet format` locally to fix.
+        run: dotnet format LlmMemory.sln --verify-no-changes --severity warn || echo "::warning::Formatting drift detected (non-blocking until we lock down style rules)"

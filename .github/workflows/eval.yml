@@ -1,0 +1,67 @@
+name: Eval (live LLM)
+
+# Manual workflow — runs the retrieval evaluation harness against a real LLM
+# and a real Postgres+AGE. Requires creds; off the CI hot path because it costs
+# money to run and the dev-tenant corpus is what's eval'd, not a fixture.
+#
+# Usage:
+#   1. Provision a runner with AGE + pgvector + a populated dev tenant + LLM creds
+#      in env (MEMORY_AZURE_OPENAI_ENDPOINT / MEMORY_AZURE_OPENAI_KEY etc).
+#   2. Trigger via "Run workflow" button in the Actions tab.
+#   3. Inspect the printed Recall@K + MRR; commit eval-queries.json to lock the
+#      benchmark across runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "How many notes to sample for query generation"
+        required: false
+        default: "30"
+      top_k:
+        description: "Search depth for rank measurement"
+        required: false
+        default: "10"
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    name: Retrieval eval
+    runs-on: self-hosted
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Build
+        run: dotnet build src/Memory.Cli/Memory.Cli.csproj --configuration Release
+
+      - name: Generate queries
+        env:
+          MEMORY_API_URL: ${{ secrets.MEMORY_API_URL }}
+          MEMORY_API_KEY: ${{ secrets.MEMORY_API_KEY }}
+        run: |
+          dotnet run --project src/Memory.Cli/Memory.Cli.csproj --configuration Release --no-build -- \
+            eval gen-queries --count ${{ github.event.inputs.count }} --out eval-queries.json
+
+      - name: Run eval
+        env:
+          MEMORY_API_URL: ${{ secrets.MEMORY_API_URL }}
+          MEMORY_API_KEY: ${{ secrets.MEMORY_API_KEY }}
+        run: |
+          dotnet run --project src/Memory.Cli/Memory.Cli.csproj --configuration Release --no-build -- \
+            eval run --in eval-queries.json --top-k ${{ github.event.inputs.top_k }}
+
+      - name: Upload queries artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-queries
+          path: eval-queries.json
