@@ -230,7 +230,7 @@ public static class BackupEndpoints
         await JsonSerializer.SerializeAsync(stream, payload, opts, ct).ConfigureAwait(false);
     }
 
-    private static string Slugify(string content)
+    internal static string Slugify(string content)
     {
         var first40 = content.Length > 40 ? content[..40] : content;
         var sb = new StringBuilder();

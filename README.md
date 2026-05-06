@@ -285,9 +285,27 @@ memory eval {gen-queries,run}
 
 ## Notes on testing
 
-Tests against the LLM layer **always use real provider calls** — no mocks. Storage tests run against the user's local Postgres (no Testcontainers, by project rule). Run live tests gated by `MEMORY_LIVE_LLM_TESTS=1` so they don't fire by accident.
+Three layers of coverage, gated so a fresh checkout doesn't need any creds:
 
-`scripts/smoke-test-api.sh` is the comprehensive E2E probe — health, list endpoints, search variants, faceted filters, expansion, RLS isolation. `scripts/smoke-test-mcp.sh` exercises the stdio MCP path: initialize → save_episode → search_memory → reflect.
+- **Pure unit** (`Memory.Domain.Tests`, `Memory.Llm.Tests`, `Memory.Api.Tests`,
+  fast tests in `Memory.Pipeline.Tests`): no DB, no LLM, no network. RRF
+  fusion math, slug generation, API-key hashing, admin-scope filter, LLM
+  gateway provider routing, etc. ~46 tests; runs in seconds.
+  ```bash
+  dotnet test --filter "FullyQualifiedName!~Live"
+  ```
+- **Live integration** (`LivePg`-flagged tests in `Memory.Storage.Tests` and
+  `Memory.Pipeline.Tests`): hit the user's local Postgres + AGE + pgvector.
+  Provision via `MEMORY_TEST_PG_PASSWORD` / `MEMORY_TEST_PG_PORT` env vars.
+  By project rule: real DB, no Testcontainers.
+- **Live LLM** (`LiveLlm`-flagged tests): real provider calls (no mocks of
+  `IChatClient` / `IEmbeddingGenerator`). Gated by `MEMORY_LIVE_LLM_TESTS=1`
+  so they never fire by accident — token cost is real.
+
+`scripts/smoke-test-api.sh` is the comprehensive E2E probe — health, list
+endpoints, search variants, faceted filters, expansion, RLS isolation.
+`scripts/smoke-test-mcp.sh` exercises the stdio MCP path: initialize →
+save_episode → search_memory → reflect.
 
 ---
 
@@ -304,6 +322,8 @@ Detailed docs live under [`docs/`](docs/):
 | [USE-CASES.md](docs/USE-CASES.md) | Practical setups for programming notes, health log, personal life, research, shared collaboration. |
 | [PRIVACY.md](docs/PRIVACY.md) | What leaves your machine, by default. Per-provider retention. Recommended setups for sensitive content. Threat model. |
 | [OPERATIONS.md](docs/OPERATIONS.md) | Daily start-up, healthcheck, mint API keys, backup/restore, Markdown round-trip, eval, migrations, OpenBao + Azure KV ops, troubleshooting. |
+
+Release notes for each version: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

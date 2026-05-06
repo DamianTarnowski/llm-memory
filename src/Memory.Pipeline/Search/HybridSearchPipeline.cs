@@ -63,7 +63,7 @@ internal sealed class HybridSearchPipeline(
             var hits = await VectorSearchAsync(conn, queryVector, request, candidateLimit, ct).ConfigureAwait(false);
             vectorPerVariant.Add(hits);
         }
-        var vectorHits = MergeVectorStreams(vectorPerVariant, RrfK);
+        var vectorHits = RrfFuser.MergeVectorStreams(vectorPerVariant, RrfK);
 
         var bm25Hits = await Bm25SearchAsync(conn, request, candidateLimit, ct).ConfigureAwait(false);
         var graphRaw = await graphRetriever.RetrieveAsync(request.Query, candidateLimit, ct).ConfigureAwait(false);
@@ -78,7 +78,7 @@ internal sealed class HybridSearchPipeline(
         // space, then we cosine-search image_embeddings.
         var imageHits = await ImageVectorSearchAsync(conn, request, candidateLimit, ct).ConfigureAwait(false);
 
-        var fused = FuseRrf(vectorHits, bm25Hits, graphHits, imageHits, RrfK);
+        var fused = RrfFuser.Fuse(vectorHits, bm25Hits, graphHits, imageHits, RrfK);
 
         // Optional time-decay: re-weight by note age before reranking.
         var decayed = await ApplyTimeDecayAsync(fused, ct).ConfigureAwait(false);
@@ -340,128 +340,6 @@ internal sealed class HybridSearchPipeline(
         }
     }
 
-    /// <summary>
-    /// Reciprocal Rank Fusion across four retrievers (text-vector, BM25, graph PPR,
-    /// image-vector). A note's RRF score is the sum of 1/(k + rank_in_each_list_it_appears_in).
-    /// Hits found by multiple retrievers stack contributions — that's the whole point.
-    /// </summary>
-    private static List<SearchHit> FuseRrf(
-        List<RankedHit> vector,
-        List<RankedHit> bm25,
-        List<RankedHit> graph,
-        List<RankedHit> image,
-        int k)
-    {
-        var pool = new Dictionary<NoteId, FusedHit>();
-
-        Add(pool, vector, k, stream: Stream.Vector);
-        Add(pool, bm25, k, stream: Stream.Bm25);
-        Add(pool, graph, k, stream: Stream.Graph);
-        Add(pool, image, k, stream: Stream.Image);
-
-        return pool.Values
-            .OrderByDescending(f => f.RrfScore)
-            .Select(f => new SearchHit(
-                f.NoteId, f.Content, f.RrfScore, f.Related,
-                new SearchHitProvenance(
-                    FromVector: f.FromVector,
-                    FromBm25: f.FromBm25,
-                    FromGraph: f.FromGraph,
-                    VectorScore: f.VectorScore,
-                    Bm25Score: f.Bm25Score,
-                    GraphScore: f.GraphScore,
-                    RerankerScore: null)))
-            .ToList();
-    }
-
-    /// <summary>
-    /// Fuses per-variant vector hit lists into a single re-ranked stream. Each variant's
-    /// hits get RRF contributions; the resulting stream is then sorted by combined score
-    /// and re-ranked 1..N before joining the main 3-stream fusion.
-    /// </summary>
-    private static List<RankedHit> MergeVectorStreams(List<List<RankedHit>> perVariant, int k)
-    {
-        if (perVariant.Count == 1) return perVariant[0];
-
-        var pool = new Dictionary<NoteId, (RankedHit Sample, double Score)>();
-        foreach (var list in perVariant)
-        {
-            foreach (var h in list)
-            {
-                var contribution = 1.0 / (k + h.Rank);
-                if (pool.TryGetValue(h.NoteId, out var existing))
-                {
-                    pool[h.NoteId] = (existing.Sample, existing.Score + contribution);
-                }
-                else
-                {
-                    pool[h.NoteId] = (h, contribution);
-                }
-            }
-        }
-
-        return pool.Values
-            .OrderByDescending(p => p.Score)
-            .Select((p, i) => p.Sample with { Rank = i + 1 })
-            .ToList();
-    }
-
-    private enum Stream { Vector, Bm25, Graph, Image }
-
-    private static void Add(Dictionary<NoteId, FusedHit> pool, List<RankedHit> hits, int k, Stream stream)
-    {
-        foreach (var h in hits)
-        {
-            var contribution = 1.0 / (k + h.Rank);
-            if (!pool.TryGetValue(h.NoteId, out var existing))
-            {
-                existing = new FusedHit
-                {
-                    NoteId = h.NoteId,
-                    Content = h.Content,
-                    Related = h.Related,
-                };
-                pool[h.NoteId] = existing;
-            }
-
-            existing.RrfScore += contribution;
-            if (existing.Related.Length == 0 && h.Related.Length > 0) existing.Related = h.Related;
-
-            switch (stream)
-            {
-                case Stream.Vector: existing.FromVector = true; existing.VectorScore = contribution; break;
-                case Stream.Bm25: existing.FromBm25 = true; existing.Bm25Score = contribution; break;
-                case Stream.Graph: existing.FromGraph = true; existing.GraphScore = contribution; break;
-                case Stream.Image: existing.FromVector = true; existing.VectorScore = Math.Max(existing.VectorScore, contribution); break;
-                    // Image-vector hits are reported under the same FromVector flag because the
-                    // SearchHitProvenance wire format doesn't have a dedicated FromImage yet —
-                    // both kinds are "embedding-similarity" matches as far as callers care.
-                    // A future iteration can expose FromImage + ImageScore if introspection
-                    // becomes useful for diagnostics or UI.
-            }
-        }
-    }
-
-    private sealed record RankedHit(
-        NoteId NoteId,
-        string Content,
-        int Rank,
-        double Distance,
-        EntityId[] Related,
-        bool FromVector,
-        bool FromBm25);
-
-    private sealed class FusedHit
-    {
-        public required NoteId NoteId { get; init; }
-        public required string Content { get; init; }
-        public EntityId[] Related { get; set; } = Array.Empty<EntityId>();
-        public double RrfScore { get; set; }
-        public bool FromVector { get; set; }
-        public bool FromBm25 { get; set; }
-        public bool FromGraph { get; set; }
-        public double VectorScore { get; set; }
-        public double Bm25Score { get; set; }
-        public double GraphScore { get; set; }
-    }
+    // Fusion math (RRF + per-variant vector merge) lives in RrfFuser.cs so it
+    // can be unit-tested in isolation. The pipeline only orchestrates IO.
 }

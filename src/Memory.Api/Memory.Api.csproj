@@ -22,5 +22,9 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Memory.Api.Tests" />
+  </ItemGroup>
+
 </Project>
 

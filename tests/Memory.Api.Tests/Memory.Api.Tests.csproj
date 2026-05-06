@@ -9,13 +9,11 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
-    <PackageReference Include="FluentAssertions" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
-    <PackageReference Include="Microsoft.Extensions.Configuration" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Memory.Llm\Memory.Llm.csproj" />
+    <ProjectReference Include="..\..\src\Memory.Api\Memory.Api.csproj" />
+    <ProjectReference Include="..\..\src\Memory.Domain\Memory.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

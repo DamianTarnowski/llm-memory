@@ -7,4 +7,8 @@
     <ProjectReference Include="..\Memory.Llm\Memory.Llm.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Memory.Pipeline.Tests" />
+  </ItemGroup>
+
 </Project>
