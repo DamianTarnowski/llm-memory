@@ -95,72 +95,100 @@ public static class BackupEndpoints
 
             await WriteJsonAsync(archive, "episodes.json", episodes.Select(e => new
             {
-                id = e.Id.Value, source = e.Source, content = e.Content,
-                occurredAt = e.OccurredAt, ingestedAt = e.IngestedAt,
+                id = e.Id.Value,
+                source = e.Source,
+                content = e.Content,
+                occurredAt = e.OccurredAt,
+                ingestedAt = e.IngestedAt,
                 metadata = e.Metadata,
             }), jsonOpts, ct).ConfigureAwait(false);
 
             await WriteJsonAsync(archive, "notes.json", notes.Select(n => new
             {
-                id = n.Id.Value, sourceEpisode = n.SourceEpisode?.Value,
-                content = n.Content, contextDescription = n.ContextDescription,
-                keywords = n.Keywords, tags = n.Tags,
+                id = n.Id.Value,
+                sourceEpisode = n.SourceEpisode?.Value,
+                content = n.Content,
+                contextDescription = n.ContextDescription,
+                keywords = n.Keywords,
+                tags = n.Tags,
                 kind = n.Kind.ToString(),
-                createdAt = n.CreatedAt, supersededAt = n.SupersededAt,
+                createdAt = n.CreatedAt,
+                supersededAt = n.SupersededAt,
             }), jsonOpts, ct).ConfigureAwait(false);
 
             if (withTextEmbeddings)
             {
                 await WriteJsonAsync(archive, "note_embeddings.json", noteEmbeddings.Select(e => new
                 {
-                    noteId = e.NoteId.Value, model = e.EmbeddingModel,
-                    dimensions = e.Dimensions, embedding = e.Embedding,
+                    noteId = e.NoteId.Value,
+                    model = e.EmbeddingModel,
+                    dimensions = e.Dimensions,
+                    embedding = e.Embedding,
                     createdAt = e.CreatedAt,
                 }), jsonOpts, ct).ConfigureAwait(false);
             }
 
             await WriteJsonAsync(archive, "note_entity_mentions.json", noteEntityMentions.Select(m => new
             {
-                noteId = m.NoteId.Value, entityId = m.EntityId.Value, createdAt = m.CreatedAt,
+                noteId = m.NoteId.Value,
+                entityId = m.EntityId.Value,
+                createdAt = m.CreatedAt,
             }), jsonOpts, ct).ConfigureAwait(false);
 
             await WriteJsonAsync(archive, "note_relations.json", noteRelations.Select(r => new
             {
-                noteId = r.NoteId.Value, relatedNoteId = r.RelatedNoteId.Value,
-                relationType = r.RelationType, confidence = r.Confidence,
-                similarity = r.Similarity, description = r.Description,
+                noteId = r.NoteId.Value,
+                relatedNoteId = r.RelatedNoteId.Value,
+                relationType = r.RelationType,
+                confidence = r.Confidence,
+                similarity = r.Similarity,
+                description = r.Description,
                 createdAt = r.CreatedAt,
             }), jsonOpts, ct).ConfigureAwait(false);
 
             await WriteJsonAsync(archive, "reflections.json", reflections.Select(r => new
             {
-                id = r.Id.Value, scope = r.Scope, summary = r.Summary,
-                generatedAt = r.GeneratedAt, generatorModel = r.GeneratorModel,
+                id = r.Id.Value,
+                scope = r.Scope,
+                summary = r.Summary,
+                generatedAt = r.GeneratedAt,
+                generatorModel = r.GeneratorModel,
             }), jsonOpts, ct).ConfigureAwait(false);
 
             if (withImageEmbeddings && imageEmbeddings.Count > 0)
             {
                 await WriteJsonAsync(archive, "image_embeddings.json", imageEmbeddings.Select(e => new
                 {
-                    id = e.Id, noteId = e.NoteId.Value, model = e.ModelId,
-                    dimensions = e.Dimensions, embedding = e.Embedding,
+                    id = e.Id,
+                    noteId = e.NoteId.Value,
+                    model = e.ModelId,
+                    dimensions = e.Dimensions,
+                    embedding = e.Embedding,
                     createdAt = e.CreatedAt,
                 }), jsonOpts, ct).ConfigureAwait(false);
             }
 
             await WriteJsonAsync(archive, "entities.json", entities.Select(e => new
             {
-                id = e.Id.Value, name = e.Name, kind = e.Kind,
+                id = e.Id.Value,
+                name = e.Name,
+                kind = e.Kind,
                 attributes = e.Attributes,
-                firstSeenAt = e.FirstSeenAt, lastSeenAt = e.LastSeenAt,
+                firstSeenAt = e.FirstSeenAt,
+                lastSeenAt = e.LastSeenAt,
             }), jsonOpts, ct).ConfigureAwait(false);
 
             await WriteJsonAsync(archive, "edges.json", edges.Select(e => new
             {
-                id = e.Id.Value, from = e.From.Value, to = e.To.Value,
-                relation = e.Relation, properties = e.Properties,
-                recordedAt = e.RecordedAt, validFrom = e.ValidFrom,
-                validTo = e.ValidTo, invalidatedAt = e.InvalidatedAt,
+                id = e.Id.Value,
+                from = e.From.Value,
+                to = e.To.Value,
+                relation = e.Relation,
+                properties = e.Properties,
+                recordedAt = e.RecordedAt,
+                validFrom = e.ValidFrom,
+                validTo = e.ValidTo,
+                invalidatedAt = e.InvalidatedAt,
                 sourceEpisode = e.SourceEpisode?.Value,
             }), jsonOpts, ct).ConfigureAwait(false);
 
