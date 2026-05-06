@@ -23,11 +23,34 @@ builder.Configuration
 
 builder.Services.AddOpenApi();
 
-builder.Services.AddCors(opts => opts.AddDefaultPolicy(p => p
-    .SetIsOriginAllowed(_ => true)
-    .AllowAnyHeader()
-    .AllowAnyMethod()
-    .AllowCredentials()));
+// CORS: open in Development for local Blazor / Postman / curl convenience,
+// explicit allowlist in Production. Drive prod origins via Cors:AllowedOrigins
+// (config or env, e.g. MEMORY_CORS__ALLOWEDORIGINS__0=https://your.host).
+// AllowCredentials only matters when an explicit origin matches; using
+// SetIsOriginAllowed(true) + AllowCredentials together is what makes the dev
+// policy permissive AND able to receive cookies — fine for dev, not for prod.
+builder.Services.AddCors(opts => opts.AddDefaultPolicy(p =>
+{
+    if (builder.Environment.IsDevelopment())
+    {
+        p.SetIsOriginAllowed(_ => true).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+    }
+    else
+    {
+        var allowed = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+        if (allowed.Length == 0)
+        {
+            // No origins configured → no cross-origin browser access. Server-to-server
+            // bearer-auth callers (CLI, MCP HTTP clients) don't trigger CORS, so they
+            // still work. Misconfig-safe default.
+            p.WithOrigins("https://localhost").AllowAnyHeader().AllowAnyMethod();
+        }
+        else
+        {
+            p.WithOrigins(allowed).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+        }
+    }
+}));
 
 builder.Services.AddMemoryTenancy();
 builder.Services.AddMemoryStorage(builder.Configuration);
@@ -58,16 +81,26 @@ app.MapOpenApi();
 
 app.UseCors();
 app.UseMiddleware<ApiKeyAuthMiddleware>();
-app.UseMiddleware<TenantHeaderMiddleware>();
 
-app.MapGet("/", () => Results.Ok(new
+// Header-based tenant scope (X-Memory-Org-Id / -User-Id / -Project-Id) is a
+// **dev-only** fallback so curl/Postman can hit the API without minting a
+// bearer key. In production this would be a critical auth bypass — anyone
+// with three GUIDs would impersonate that tenant. Hard-gated to Development.
+if (app.Environment.IsDevelopment())
+{
+    app.UseMiddleware<TenantHeaderMiddleware>();
+}
+
+app.MapGet("/", (IHostEnvironment env) => Results.Ok(new
 {
     service = "Memory.Api",
     version = typeof(Program).Assembly.GetName().Version?.ToString(),
     docs = "/openapi/v1.json",
     mcp = "/mcp",
     health = "/api/health",
-    auth = "Bearer <api-key>  OR  X-Memory-Org-Id / X-Memory-User-Id / X-Memory-Project-Id",
+    auth = env.IsDevelopment()
+        ? "Bearer <api-key>  OR  X-Memory-Org-Id / X-Memory-User-Id / X-Memory-Project-Id (dev-only fallback)"
+        : "Bearer <api-key>",
 }));
 
 app.MapGet("/api/health", async (MemoryDbContext db, ILlmGateway llm, CancellationToken ct) =>
@@ -380,19 +413,23 @@ app.MapPost("/api/search", async (ISearchPipeline pipeline, SearchPostBody body,
     });
 });
 
-// --- /api/secrets/* — admin proxy onto OpenBao ---------------------------
-//   Memory.Web's /secrets page hits these instead of talking to Vault directly,
-//   so the root token never leaves the API process. All endpoints return 503
-//   when no MEMORY_BAO_* env vars are configured.
+// --- /api/secrets/* — ADMIN-ONLY proxy onto OpenBao -----------------------
+//   Every endpoint below is gated by an admin-key check (ApiKey.IsAdmin == true).
+//   Mint with `memory api-key create ... --admin`. Tenant keys get 403 here so
+//   regular MCP clients can't read or rotate vault secrets just because they
+//   have a bearer token. Status endpoint is intentionally also admin-only —
+//   even leaking "vault is configured" is information disclosure.
 
-app.MapGet("/api/secrets/status", (Memory.Api.VaultClientHolder vaultHolder) => Results.Ok(new
+var secrets = app.MapGroup("/api/secrets").AddEndpointFilter<AdminOnlyEndpointFilter>();
+
+secrets.MapGet("/status", (Memory.Api.VaultClientHolder vaultHolder) => Results.Ok(new
 {
     configured = vaultHolder.Client is not null,
     address = VaultClientFactory.Address,
     mount = VaultClientFactory.KvMount,
 }));
 
-app.MapGet("/api/secrets/paths", async (Memory.Api.VaultClientHolder vaultHolder, string? folder, CancellationToken ct) =>
+secrets.MapGet("/paths", async (Memory.Api.VaultClientHolder vaultHolder, string? folder, CancellationToken ct) =>
 {
     var vault = vaultHolder.Client;
     if (vault is null) return Results.StatusCode(503);
@@ -409,7 +446,7 @@ app.MapGet("/api/secrets/paths", async (Memory.Api.VaultClientHolder vaultHolder
     }
 });
 
-app.MapGet("/api/secrets/data", async (Memory.Api.VaultClientHolder vaultHolder, string path, CancellationToken ct) =>
+secrets.MapGet("/data", async (Memory.Api.VaultClientHolder vaultHolder, string path, CancellationToken ct) =>
 {
     var vault = vaultHolder.Client;
     if (vault is null) return Results.StatusCode(503);
@@ -432,7 +469,7 @@ app.MapGet("/api/secrets/data", async (Memory.Api.VaultClientHolder vaultHolder,
     }
 });
 
-app.MapPut("/api/secrets/data", async (Memory.Api.VaultClientHolder vaultHolder, SecretDataPostBody body, CancellationToken ct) =>
+secrets.MapPut("/data", async (Memory.Api.VaultClientHolder vaultHolder, SecretDataPostBody body, CancellationToken ct) =>
 {
     var vault = vaultHolder.Client;
     if (vault is null) return Results.StatusCode(503);
@@ -444,7 +481,7 @@ app.MapPut("/api/secrets/data", async (Memory.Api.VaultClientHolder vaultHolder,
     return Results.Ok(new { path = body.Path, version = written?.Data?.Version ?? 0 });
 });
 
-app.MapDelete("/api/secrets/data", async (Memory.Api.VaultClientHolder vaultHolder, string path, CancellationToken ct) =>
+secrets.MapDelete("/data", async (Memory.Api.VaultClientHolder vaultHolder, string path, CancellationToken ct) =>
 {
     var vault = vaultHolder.Client;
     if (vault is null) return Results.StatusCode(503);

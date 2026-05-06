@@ -39,7 +39,8 @@ internal static class ApiKeyCommand
                 --org <org-uuid> --user <user-uuid> --project <project-uuid> \
                 --name "claude-desktop"
 
-              memory api-key list --connection-string "..."
+              memory api-key create ... --admin   # adds /api/secrets/* admin scope
+              memory api-key list   --connection-string "..."
               memory api-key revoke --connection-string "..." --id <api-key-id>
             """);
 
@@ -55,6 +56,7 @@ internal static class ApiKeyCommand
             return Fail("--project <uuid> is required.");
         opts.TryGetValue("--name", out var name);
         name ??= "unnamed";
+        var isAdmin = args.Contains("--admin", StringComparer.OrdinalIgnoreCase);
 
         var rawKey = GenerateKey();
         var hash = HashToken(rawKey);
@@ -72,8 +74,8 @@ internal static class ApiKeyCommand
         await using var insert = conn.CreateCommand();
         insert.CommandText = """
             INSERT INTO memory.api_keys
-              (id, key_hash, organization_id, project_id, created_by_user_id, name, created_at)
-            VALUES (@id, @hash, @org, @proj, @user, @name, @now);
+              (id, key_hash, organization_id, project_id, created_by_user_id, name, created_at, is_admin)
+            VALUES (@id, @hash, @org, @proj, @user, @name, @now, @is_admin);
             """;
         insert.Parameters.AddWithValue("id", id);
         insert.Parameters.AddWithValue("hash", hash);
@@ -82,13 +84,17 @@ internal static class ApiKeyCommand
         insert.Parameters.AddWithValue("user", userId);
         insert.Parameters.AddWithValue("name", name);
         insert.Parameters.AddWithValue("now", DateTimeOffset.UtcNow);
+        insert.Parameters.AddWithValue("is_admin", isAdmin);
         await insert.ExecuteNonQueryAsync().ConfigureAwait(false);
 
+        var adminBanner = isAdmin
+            ? "\n            !! ADMIN KEY — can call /api/secrets/* (OpenBao proxy). Treat carefully.\n"
+            : "";
         Console.WriteLine($"""
             API key created (id {id:D}). Save this token now — it will NOT be shown again:
 
               {rawKey}
-
+            {adminBanner}
             Send as `Authorization: Bearer <token>` to Memory.Api endpoints.
             """);
         return 0;
@@ -104,12 +110,12 @@ internal static class ApiKeyCommand
 
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT id, name, organization_id, project_id, created_at, last_used_at, revoked_at
+            SELECT id, name, organization_id, project_id, created_at, last_used_at, revoked_at, is_admin
             FROM memory.api_keys
             ORDER BY created_at DESC;
             """;
         await using var reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
-        Console.WriteLine($"{"id",-38} {"name",-25} {"project",-38} {"created",-30} {"revoked"}");
+        Console.WriteLine($"{"id",-38} {"name",-25} {"project",-38} {"role",-7} {"created",-30} {"revoked"}");
         while (await reader.ReadAsync().ConfigureAwait(false))
         {
             var id = reader.GetGuid(0);
@@ -117,7 +123,8 @@ internal static class ApiKeyCommand
             var proj = reader.GetGuid(3);
             var created = reader.GetDateTime(4);
             var revoked = reader.IsDBNull(6) ? "" : reader.GetDateTime(6).ToString("u");
-            Console.WriteLine($"{id:D} {name,-25} {proj:D} {created:u} {revoked}");
+            var role = reader.GetBoolean(7) ? "admin" : "tenant";
+            Console.WriteLine($"{id:D} {name,-25} {proj:D} {role,-7} {created:u} {revoked}");
         }
         return 0;
     }

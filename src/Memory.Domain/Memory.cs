@@ -97,6 +97,14 @@ public sealed class ApiKey
     public required DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset? LastUsedAt { get; init; }
     public DateTimeOffset? RevokedAt { get; init; }
+
+    /// <summary>
+    /// Admin keys are required to call <c>/api/secrets/*</c> (the OpenBao proxy).
+    /// Regular tenant keys cannot read or write to the secret store. Defaults to
+    /// false so newly minted keys never accidentally inherit admin authority.
+    /// Mint with <c>memory api-key create --admin</c>.
+    /// </summary>
+    public bool IsAdmin { get; init; }
 }
 
 public sealed class Entity

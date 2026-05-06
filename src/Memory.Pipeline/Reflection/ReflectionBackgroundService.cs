@@ -1,3 +1,4 @@
+using Memory.Domain;
 using Memory.Tenancy;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -20,9 +21,17 @@ internal sealed class ReflectionBackgroundService(
             return;
         }
 
+        if (opts.Tenants.Count == 0)
+        {
+            logger.LogWarning(
+                "ReflectionSchedule:Enabled=true but no Tenants[] configured — nothing to reflect against. " +
+                "Add ReflectionSchedule:Tenants:[{{Organization, User, Project}}, ...] to schedule per-project reflection.");
+            return;
+        }
+
         logger.LogInformation(
-            "Reflection background service starting: initial delay {InitialDelay}, interval {Interval}, max notes/run {Max}.",
-            opts.InitialDelay, opts.Interval, opts.MaxNotesPerRun);
+            "Reflection background service starting: initial delay {InitialDelay}, interval {Interval}, max notes/run {Max}, tenants {TenantCount}.",
+            opts.InitialDelay, opts.Interval, opts.MaxNotesPerRun, opts.Tenants.Count);
 
         try
         {
@@ -32,7 +41,11 @@ internal sealed class ReflectionBackgroundService(
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            await RunOnceAsync(opts, stoppingToken).ConfigureAwait(false);
+            foreach (var t in opts.Tenants)
+            {
+                if (stoppingToken.IsCancellationRequested) break;
+                await RunForTenantAsync(opts, t, stoppingToken).ConfigureAwait(false);
+            }
 
             try
             {
@@ -42,30 +55,29 @@ internal sealed class ReflectionBackgroundService(
         }
     }
 
-    private async Task RunOnceAsync(ReflectionScheduleOptions opts, CancellationToken ct)
+    private async Task RunForTenantAsync(ReflectionScheduleOptions opts, ReflectionTenant t, CancellationToken ct)
     {
         try
         {
-            using var scope = scopeFactory.CreateScope();
-            var tenant = scope.ServiceProvider.GetRequiredService<ITenantContext>();
-            if (tenant.Current is null)
-            {
-                logger.LogDebug("No active tenant scope; skipping reflection cycle.");
-                return;
-            }
+            using var diScope = scopeFactory.CreateScope();
+            var tenantCtx = diScope.ServiceProvider.GetRequiredService<ITenantContext>();
+            using var tenantScope = tenantCtx.BeginScope(new TenantScope(
+                new OrganizationId(t.Organization),
+                new UserId(t.User),
+                new ProjectId(t.Project)));
 
-            var pipeline = scope.ServiceProvider.GetRequiredService<IReflectionPipeline>();
+            var pipeline = diScope.ServiceProvider.GetRequiredService<IReflectionPipeline>();
             var result = await pipeline.ReflectAsync(
                 new ReflectionRequest(opts.Scope, opts.MaxNotesPerRun),
                 ct).ConfigureAwait(false);
 
             logger.LogInformation(
                 "Scheduled reflection: project={ProjectId} notes_considered={Notes} reflection_id={ReflectionId}",
-                tenant.Current.Project, result.NotesConsidered, result.Id);
+                t.Project, result.NotesConsidered, result.Id);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "Scheduled reflection failed; will retry next interval.");
+            logger.LogWarning(ex, "Scheduled reflection failed for project={ProjectId}; will retry next interval.", t.Project);
         }
     }
 }

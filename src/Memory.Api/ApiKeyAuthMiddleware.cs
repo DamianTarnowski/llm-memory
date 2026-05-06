@@ -17,6 +17,9 @@ namespace Memory.Api;
 /// </summary>
 internal sealed class ApiKeyAuthMiddleware(RequestDelegate next)
 {
+    /// <summary>HttpContext.Items key under which the resolved <see cref="ApiKey"/> is stashed.</summary>
+    public const string ApiKeyContextKey = "Memory.Api.AuthenticatedApiKey";
+
     public async Task InvokeAsync(HttpContext context, ITenantContext tenant, MemoryDbContext db)
     {
         var token = ExtractBearer(context.Request.Headers.Authorization.ToString());
@@ -39,6 +42,9 @@ internal sealed class ApiKeyAuthMiddleware(RequestDelegate next)
             return;
         }
 
+        // Stash the resolved key on the request so downstream policies (e.g. the
+        // /api/secrets/* admin gate) can inspect IsAdmin without re-querying.
+        context.Items[ApiKeyContextKey] = key;
         using var _ = tenant.BeginScope(new TenantScope(key.Organization, key.CreatedByUser, key.Project));
         try
         {

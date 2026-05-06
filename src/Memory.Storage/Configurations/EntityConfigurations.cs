@@ -293,6 +293,7 @@ internal sealed class ApiKeyConfiguration : IEntityTypeConfiguration<ApiKey>
         b.Property(k => k.CreatedAt).HasColumnName("created_at");
         b.Property(k => k.LastUsedAt).HasColumnName("last_used_at");
         b.Property(k => k.RevokedAt).HasColumnName("revoked_at");
+        b.Property(k => k.IsAdmin).HasColumnName("is_admin").HasDefaultValue(false);
         b.HasIndex(k => k.KeyHash).IsUnique();
         b.HasIndex(k => k.Project);
 
