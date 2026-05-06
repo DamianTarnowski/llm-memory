@@ -29,6 +29,8 @@ logs/
 appsettings.*.Local.json
 appsettings.Local.json
 secrets.json
+.mcp.json
+!.mcp.json.example
 
 # Test outputs / coverage
 TestResults/

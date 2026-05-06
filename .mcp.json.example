@@ -1,0 +1,19 @@
+{
+  "_comment": "Copy this to .mcp.json and fill in your API key. The .mcp.json itself is gitignored. Claude Code / Codex CLI auto-loads .mcp.json from the project root.",
+  "mcpServers": {
+    "memory": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": [
+        "src/Memory.Mcp.Stdio/bin/Debug/net10.0/Memory.Mcp.Stdio.dll"
+      ]
+    },
+    "memory-cloud": {
+      "type": "http",
+      "url": "https://YOUR-DEPLOY.azurewebsites.net/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MEMORY_API_KEY_HERE"
+      }
+    }
+  }
+}

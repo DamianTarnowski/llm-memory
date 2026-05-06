@@ -14,9 +14,15 @@ namespace Memory.Storage.Tests;
 /// </summary>
 public sealed class LivePgFixture : IAsyncLifetime
 {
-    private const string AdminConnString = "Host=localhost;Port=5435;Database=postgres;Username=postgres;Password=REDACTED_PG_PASSWORD";
+    // Test DB lives on the user's local Postgres. Password comes from
+    // MEMORY_TEST_PG_PASSWORD env var (set in your shell or test runner config).
+    // Defaults to "postgres" so a fresh checkout running against a default-installed
+    // Postgres works without further env setup.
+    private static readonly string Pwd = Environment.GetEnvironmentVariable("MEMORY_TEST_PG_PASSWORD") ?? "postgres";
+    private static readonly string Port = Environment.GetEnvironmentVariable("MEMORY_TEST_PG_PORT") ?? "5435";
+    private static readonly string AdminConnString = $"Host=localhost;Port={Port};Database=postgres;Username=postgres;Password={Pwd}";
     public const string TestDbName = "llm_memory_test";
-    public string ConnectionString => $"Host=localhost;Port=5435;Database={TestDbName};Username=postgres;Password=REDACTED_PG_PASSWORD";
+    public string ConnectionString => $"Host=localhost;Port={Port};Database={TestDbName};Username=postgres;Password={Pwd}";
 
     public OrganizationId Org { get; } = new(Guid.Parse("a1111111-1111-1111-1111-111111111111"));
     public UserId User { get; } = new(Guid.Parse("a2222222-2222-2222-2222-222222222222"));
