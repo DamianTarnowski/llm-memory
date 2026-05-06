@@ -186,8 +186,9 @@ Run before/after a pipeline tweak (Reranker / GraphRetrieval / QueryExpansion / 
 memory init                Seed an organization / user / project tenant scope.
 memory api-key {create,list,revoke}
                            Manage Memory.Api bearer-token API keys.
-memory backup {dump,restore}
-                           Tenant data backup as JSON.
+memory backup {dump,restore,download}
+                           Tenant data backup. dump/restore = direct DB JSON;
+                           download = HTTP-streamed .zip from any deploy.
 memory chat                Conversational REPL against /api/search etc.
 memory tenants {provision-schema,list,drop-schema}
                            Schema-per-org tenancy foundation.

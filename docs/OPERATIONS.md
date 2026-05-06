@@ -84,16 +84,43 @@ memory api-key revoke --id <api-key-id>
 
 ## Backup + restore
 
-```bash
-# Dump every active tenant entity to JSON
-memory backup dump --org <org-uuid> --out ./backup.json
+Two paths depending on whether you have direct DB access or only the HTTP API.
 
-# Restore into a fresh project (won't merge into existing — drops first)
-memory backup restore --in ./backup.json
+### HTTP path — works against any deploy (incl. cloud)
+
+```bash
+# Stream a single .zip for the caller's tenant via the API
+memory backup download \
+  --api-url https://llmmemory-api.azurewebsites.net \
+  --api-key memk_… \
+  --out ./memory-backup.zip
 ```
 
-Backup JSON contains: episodes, notes, embeddings, entities, edges,
-reflections. Bi-temporal supersession state is preserved.
+The zip contains per-entity JSONs (episodes, notes, embeddings, mentions,
+relations, reflections, image embeddings, entities, edges) plus a `notes-md/`
+folder of one Obsidian-frontmatter Markdown per active note. Slim it with
+`--no-embeddings` / `--no-image-embeddings` if you only want the prose.
+
+Same endpoint can be hit directly from a browser / `curl`:
+```bash
+curl -fSL https://your.host/api/backup/download \
+  -H "Authorization: Bearer memk_…" \
+  -o memory-backup.zip
+```
+
+### DB path — admin-only, requires postgres connection
+
+```bash
+# Dump every active tenant entity to JSON
+memory backup dump --connection-string "Host=…" --org <org-uuid> --output ./backup.json
+
+# Restore into a fresh project (won't merge into existing — drops first)
+memory backup restore --connection-string "Host=…" --input ./backup.json
+```
+
+Both paths preserve bi-temporal supersession state. Use `download` for
+self-service tenant exports, `dump`/`restore` for cross-deploy migrations
+where you control the database directly.
 
 ## Markdown round-trip (Obsidian etc)
 

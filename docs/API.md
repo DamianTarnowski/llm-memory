@@ -220,6 +220,43 @@ Body fields:
 
 ---
 
+## Backup
+
+### `GET /api/backup/download`
+Streams a tenant-scoped `.zip` containing every entity for the caller's project.
+The zip is human-browsable: per-entity JSON files plus a `notes-md/` folder of
+one Markdown per active note (Obsidian-friendly YAML frontmatter).
+
+```bash
+curl -fSL https://your.host/api/backup/download \
+  -H "Authorization: Bearer memk_…" \
+  -o memory-backup.zip
+```
+
+Query parameters:
+- `includeEmbeddings=false` — skip `note_embeddings.json` (default `true`)
+- `includeImageEmbeddings=false` — skip `image_embeddings.json` (default `true`)
+
+Zip layout:
+```
+manifest.json              schema version, counts, generation timestamp, tenant ids
+episodes.json              raw ingestion records
+notes.json                 distilled notes (active + superseded)
+note_embeddings.json       text embedding vectors (when included)
+note_entity_mentions.json  note→entity links
+note_relations.json        note→note edges (relation_type, confidence, similarity)
+reflections.json           periodic summaries
+image_embeddings.json      multimodal embeddings (when included, non-empty)
+entities.json              graph nodes from AGE
+edges.json                 graph edges from AGE (with bi-temporal validity)
+notes-md/                  one .md per active note for Obsidian / plain reading
+```
+
+Note embeddings are tied to the embedding model that produced them — restoring
+into a project with a different model is effectively a re-ingest.
+
+---
+
 ## Webhooks
 
 ### `POST /api/webhooks/{name}` — generic
