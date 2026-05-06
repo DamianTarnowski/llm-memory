@@ -1,6 +1,6 @@
 # LLM Memory
 
-[![CI](https://img.shields.io/github/actions/workflow/status/hdtdt/llm-memory/ci.yml?branch=master&label=CI)](../../actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/DamianTarnowski/llm-memory/ci.yml?branch=master&label=CI)](../../actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 [![Postgres](https://img.shields.io/badge/Postgres-16%20%2B%20pgvector%20%2B%20AGE-336791)](https://www.postgresql.org/)
