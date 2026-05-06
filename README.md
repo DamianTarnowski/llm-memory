@@ -1,6 +1,16 @@
 # LLM Memory
 
+[![CI](https://img.shields.io/github/actions/workflow/status/hdtdt/llm-memory/ci.yml?branch=master&label=CI)](../../actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
+[![Postgres](https://img.shields.io/badge/Postgres-16%20%2B%20pgvector%20%2B%20AGE-336791)](https://www.postgresql.org/)
+[![MCP](https://img.shields.io/badge/MCP-stdio%20%2B%20HTTP-blue)](https://modelcontextprotocol.io/)
+
 Stateful "second brain" memory system for LLM assistants — exposed via the **Model Context Protocol (MCP)** so Claude Code, OpenAI Codex, and other clients can read and write into it. Built on **.NET 10** with a single **Postgres** instance backing both vectors (pgvector) and a temporal knowledge graph (Apache AGE).
+
+## Why
+
+LLM context windows are big but not persistent. Across sessions you re-explain your stack, re-state your preferences, re-paste the same docs, and lose the small observations that build into expertise. This project gives an LLM a real memory: notes that supersede each other when reality changes, a graph that links a fact to the conversation that produced it, and a retrieval pipeline that returns *the right thing* instead of the most recent thing. Cross-model on purpose — Claude, GPT, Gemini, Anthropic via Bedrock all read from the same store.
 
 > **Status:** working. Hybrid retrieval, multi-note extraction, bi-temporal supersession, A-MEM auto-linking, reflection hierarchy, multi-tenant RLS, multi-provider LLM, MCP stdio + HTTP, Blazor admin UI, Azure Key Vault → OpenBao → JSON secret-source chain — all live and verified end-to-end. Retrieval baseline on the dev tenant: Recall@1 = 93%, Recall@3 = 100%, MRR = 0.96 across 15 LLM-generated queries.
 
@@ -223,3 +233,15 @@ Detailed docs live under [`docs/`](docs/):
 | [USE-CASES.md](docs/USE-CASES.md) | Practical setups for programming notes, health log, personal life, research, shared collaboration. |
 | [PRIVACY.md](docs/PRIVACY.md) | What leaves your machine, by default. Per-provider retention. Recommended setups for sensitive content. Threat model. |
 | [OPERATIONS.md](docs/OPERATIONS.md) | Daily start-up, healthcheck, mint API keys, backup/restore, Markdown round-trip, eval, migrations, OpenBao + Azure KV ops, troubleshooting. |
+
+---
+
+## Security
+
+Found a vulnerability? See [SECURITY.md](SECURITY.md). Tenant isolation, key
+hashing, and the secret-source chain are the load-bearing pieces — please
+report cleanly before opening a public issue.
+
+## License
+
+[MIT](LICENSE) — © 2026 Damian Tarnowski. Use it, fork it, ship it. No warranty.
