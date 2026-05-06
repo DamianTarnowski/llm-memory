@@ -10,7 +10,7 @@ ERR="$REPO/scripts/.smoke-stderr.log"
 OUT_WIN="$(cygpath -w "$OUT" 2>/dev/null || echo "$OUT")"
 rm -f "$OUT" "$ERR"
 
-CONTENT='Damian is building LLM Memory, a second-brain memory system for AI assistants. The project uses .NET 10, PostgreSQL with pgvector, and Apache AGE knowledge graph. He uses Anthropic Claude for chat and OpenAI for embeddings.'
+CONTENT='Alice is building a second-brain memory system for AI assistants. The project uses .NET 10, PostgreSQL with pgvector, and Apache AGE knowledge graph. She uses Anthropic Claude for chat and OpenAI for embeddings.'
 
 echo "=== feeding 5 messages with delays for LLM calls ==="
 {
@@ -25,7 +25,7 @@ print(json.dumps({'jsonrpc':'2.0','id':2,'method':'tools/call','params':{'name':
 "
     sleep 30
     cat <<'EOF'
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search_memory","arguments":{"query":"what is Damian building","maxResults":5}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search_memory","arguments":{"query":"what is Alice building","maxResults":5}}}
 EOF
     sleep 12
     cat <<'EOF'

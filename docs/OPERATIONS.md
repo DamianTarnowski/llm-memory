@@ -16,10 +16,10 @@ wsl -d Ubuntu -- bash -c '
 '
 
 # Boot Memory.Api with the secret-source chain you want:
-export AZURE_CONFIG_DIR="$HOME/.azure-foundry"
-export MEMORY_KV_URI="https://llmmemory-kv.vault.azure.net/"
-export MEMORY_BAO_ADDR="http://127.0.0.1:8200"
-export MEMORY_BAO_TOKEN=$(jq -r .root_token /mnt/wsl/.../openbao-dev-creds.json)
+export MEMORY_KV_URI="https://<your-vault>.vault.azure.net/"   # opt-in: Azure Key Vault leg
+# export AZURE_CONFIG_DIR="$HOME/.azure-other"                  # only if KV lives on a non-default subscription
+export MEMORY_BAO_ADDR="http://127.0.0.1:8200"                  # opt-in: OpenBao leg
+export MEMORY_BAO_TOKEN=$(jq -r .root_token ~/.config/openbao-dev-creds.json)
 dotnet run --project src/Memory.Api/Memory.Api.csproj
 ```
 
@@ -91,7 +91,7 @@ Two paths depending on whether you have direct DB access or only the HTTP API.
 ```bash
 # Stream a single .zip for the caller's tenant via the API
 memory backup download \
-  --api-url https://llmmemory-api.azurewebsites.net \
+  --api-url https://<your-host> \
   --api-key memk_… \
   --out ./memory-backup.zip
 ```
@@ -209,33 +209,33 @@ sudo systemctl start openbao
 ## Azure Key Vault operations
 
 ```bash
-# Set up tenant + creds (per ~/.azure-foundry profile)
-AZURE_CONFIG_DIR="$HOME/.azure-foundry" az account show
+# Confirm you're on the subscription that owns the vault
+az account show
 
 # Write a secret
-AZURE_CONFIG_DIR="$HOME/.azure-foundry" az keyvault secret set \
-  --vault-name llmmemory-kv \
+az keyvault secret set \
+  --vault-name <your-vault> \
   --name "Llm--AzureOpenAi--ApiKey" \
   --value "$NEW_KEY"
 
 # Read back (CLI; the API does this automatically through DefaultAzureCredential)
-AZURE_CONFIG_DIR="$HOME/.azure-foundry" az keyvault secret show \
-  --vault-name llmmemory-kv \
+az keyvault secret show \
+  --vault-name <your-vault> \
   --name "Llm--AzureOpenAi--ApiKey" \
   --query value -o tsv
 
 # Grant a collaborator read-only
-AZURE_CONFIG_DIR="$HOME/.azure-foundry" az role assignment create \
+az role assignment create \
   --role "Key Vault Secrets User" \
   --assignee-object-id <their-object-id> \
   --assignee-principal-type User \
-  --scope "/subscriptions/<sub-id>/resourceGroups/zasobyPolska/providers/Microsoft.KeyVault/vaults/llmmemory-kv"
+  --scope "/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<your-vault>"
 ```
 
-The `az role assignment create` CLI sometimes returns a spurious
-`MissingSubscription` error in this configuration; the workaround is `az
-rest --method put …` to the `roleAssignments/<guid>` API directly — see
-`reference_azure_keyvault.md` in the auto-memory.
+If `az role assignment create` returns `MissingSubscription` (a known CLI
+quirk that hits some configurations), the workaround is to PUT the role
+assignment directly via `az rest --method put` against the
+`roleAssignments/<guid>` API.
 
 ## Troubleshooting matrix
 

@@ -48,5 +48,5 @@ Out of scope:
 ## Responsible disclosure
 
 I treat this as a personal project and respond on best-effort. Critical issues
-that affect the publicly-deployed instance (`https://llmmemory-api.azurewebsites.net`)
-are prioritized over feature work.
+that affect any publicly-deployed instance I operate are prioritized over
+feature work.

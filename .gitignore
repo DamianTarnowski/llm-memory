@@ -48,21 +48,10 @@ Thumbs.db
 .DS_Store
 desktop.ini
 
-# smoke-test / stress-test artifacts
-scripts/.smoke-*
-scripts/.dbg-*
-scripts/.stress-*
-scripts/.api-*
-scripts/.web-*
-scripts/.meta.*
-scripts/.multi.*
-scripts/.rerank.*
-scripts/.bitemporal-*
-scripts/.bt*
-scripts/.sf-*
-scripts/.savefilter-*
-scripts/.k-*
-scripts/.kind-*
+# smoke-test / stress-test artifacts — broad pattern: any dotfile inside scripts/
+# is throwaway test output. Whitelist `.gitkeep` etc. via explicit exception.
+scripts/.*
+!scripts/.gitkeep
 
 # Blazor WASM publish
 wwwroot/dist/

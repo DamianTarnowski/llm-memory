@@ -87,7 +87,7 @@ egress. Slowest but everything stays on disk.
   note text; reversible-ish via embedding inversion attacks but practically
   useless without the model that produced it)
 - `image_embeddings.embedding` — 1408-dim vector when Vertex is on
-- AGE entities + edges — entity names and relations (e.g. `damian` →
+- AGE entities + edges — entity names and relations (e.g. `alice` →
   `LIVES_IN` → `warsaw`)
 - `reflections.summary` — multi-paragraph LLM-generated synthesis of N notes
 - `api_keys.key_hash` — SHA-256 of bearer tokens (raw token never stored)

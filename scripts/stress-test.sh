@@ -12,7 +12,7 @@ ERR="$REPO/scripts/.stress-stderr.log"
 OUT_WIN="$(cygpath -w "$OUT" 2>/dev/null || echo "$OUT")"
 rm -f "$OUT" "$ERR"
 
-POLISH='Damian Tarnowski jest programistą z Polski. Pracuje nad projektem AIObrońca — systemem AI do automatyzacji obsługi prawnej. Używa również LLM Memory do trzymania kontekstu.'
+POLISH='Alicja jest programistką z Polski. Pracuje nad systemem AI do automatyzacji obsługi prawnej. Używa również LLM Memory do trzymania kontekstu.'
 TRICKY="The note's content has tricky chars: it's got 'single quotes', \"double quotes\", \\backslashes\\, and even \$dollar signs\$. Should not break Cypher."
 LONG_CONTENT=$(python -c "print('A long-form research note about temporal knowledge graphs and their applications in agent memory systems. ' * 30)")
 
@@ -30,7 +30,7 @@ msgs = [
     {'jsonrpc':'2.0','id':20,'method':'tools/call','params':{'name':'search_memory','arguments':{'query':'kto pracuje nad sztuczną inteligencją','maxResults':3}}},
     {'jsonrpc':'2.0','id':21,'method':'tools/call','params':{'name':'search_memory','arguments':{'query':'temporal knowledge graphs','maxResults':3}}},
     {'jsonrpc':'2.0','id':22,'method':'tools/call','params':{'name':'search_memory','arguments':{'query':'tricky','maxResults':3}}},
-    {'jsonrpc':'2.0','id':30,'method':'tools/call','params':{'name':'get_entity','arguments':{'name':'damian'}}},
+    {'jsonrpc':'2.0','id':30,'method':'tools/call','params':{'name':'get_entity','arguments':{'name':'alicja'}}},
     {'jsonrpc':'2.0','id':31,'method':'tools/call','params':{'name':'get_entity','arguments':{'name':'nonexistent-entity-xyz'}}},
     {'jsonrpc':'2.0','id':40,'method':'tools/call','params':{'name':'reflect','arguments':{'scope':'edge-case-tests','maxNotes':10}}},
 ]
@@ -90,9 +90,9 @@ for r in rows:
     elif rid == 30:
         ent = payload.get('entity')
         if ent:
-            print(f'[id=30 get_entity damian] FOUND name={ent.get(chr(34)+\"name\"+chr(34).strip(chr(34)))} kind={ent.get(chr(34)+\"kind\"+chr(34).strip(chr(34)))} out_edges={len(payload.get(chr(34)+\"outgoingEdges\"+chr(34).strip(chr(34)),[]))} in_edges={len(payload.get(chr(34)+\"incomingEdges\"+chr(34).strip(chr(34)),[]))}')
+            print(f'[id=30 get_entity alicja] FOUND name={ent.get(chr(34)+\"name\"+chr(34).strip(chr(34)))} kind={ent.get(chr(34)+\"kind\"+chr(34).strip(chr(34)))} out_edges={len(payload.get(chr(34)+\"outgoingEdges\"+chr(34).strip(chr(34)),[]))} in_edges={len(payload.get(chr(34)+\"incomingEdges\"+chr(34).strip(chr(34)),[]))}')
         else:
-            print(f'[id=30 get_entity damian] NOT_FOUND')
+            print(f'[id=30 get_entity alicja] NOT_FOUND')
     elif rid == 31:
         ent = payload.get('entity')
         print(f'[id=31 get_entity nonexistent] entity_is_null={ent is None}')

@@ -242,7 +242,7 @@ Cross-cutting:
 - **Postgres `memory_graph` schema** — AGE graph storage
 - **OpenBao file backend** — `/opt/openbao/data` (WSL2-side); persisted across
   reboots, **must be re-unsealed manually after a hard restart**
-- **Azure Key Vault** — `llmmemory-kv` on aidamiantarnowski subscription
+- **Azure Key Vault** — your KV instance, accessed via DefaultAzureCredential
 - **WSL2 home** — `~/.config/openbao-dev-creds.json` (mode 600) holds dev
   unseal key + root token
 - **Windows AppData** — `%APPDATA%\gcloud\application_default_credentials.json`
@@ -253,9 +253,10 @@ Cross-cutting:
 
 - WSL2 idles after some minutes → PG stops responding → arm a keepalive
   with `wsl -d Ubuntu --exec sleep 7200 &` before long sessions.
-- DefaultAzureCredential picks `~/.azure` by default. For the secondary
-  subscription that owns `llmmemory-kv` you need
-  `AZURE_CONFIG_DIR=$HOME/.azure-foundry`.
+- DefaultAzureCredential picks `~/.azure` by default. If your Key Vault lives
+  on a different subscription than your default `az login`, set
+  `AZURE_CONFIG_DIR` to the alternate config directory (e.g.
+  `AZURE_CONFIG_DIR=$HOME/.azure-other`).
 - AGE Cypher rejects `:` in JSONB property keys; use `--` or `__` and the
   connectors rewrite back to `:` for IConfiguration.
 - Postgres generated columns reject `to_tsvector` (STABLE not IMMUTABLE) —

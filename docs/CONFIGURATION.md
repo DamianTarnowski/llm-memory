@@ -195,8 +195,8 @@ These aren't read from `appsettings`; they short-circuit code paths directly.
 | `MEMORY_API_URL` | Default API base for `memory chat` / `memory eval` / `memory md`. |
 | `MEMORY_API_KEY` | Default bearer for the same CLI commands. |
 | `MEMORY_CONNSTR` | Default conn string for `memory init` / `memory api-key` / `memory tenants`. Use the superuser. |
-| `MEMORY_KV_URI` | Engages the Azure Key Vault provider in the Memory.Secrets chain. e.g. `https://llmmemory-kv.vault.azure.net/` |
-| `AZURE_CONFIG_DIR` | Forwarded to Azure CLI subprovider in DefaultAzureCredential. Set to `~/.azure-foundry` for the secondary subscription that owns `llmmemory-kv`. |
+| `MEMORY_KV_URI` | Engages the Azure Key Vault provider in the Memory.Secrets chain. e.g. `https://<your-vault>.vault.azure.net/` |
+| `AZURE_CONFIG_DIR` | Forwarded to the AzureCli leg of DefaultAzureCredential. Point at the alternate `~/.azure-*` directory if your KV lives on a different subscription than your default `az login`. |
 | `MEMORY_BAO_ADDR` | Engages the OpenBao provider. e.g. `http://127.0.0.1:8200` |
 | `MEMORY_BAO_TOKEN` | OpenBao bearer (or use AppRole). |
 | `MEMORY_BAO_ROLE_ID` / `MEMORY_BAO_SECRET_ID` | OpenBao AppRole credentials (preferred over root token in non-dev). |

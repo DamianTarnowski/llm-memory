@@ -1,37 +1,95 @@
-# LLM Memory
+<div align="center">
+
+# 🧠 LLM Memory
+
+**A real memory system for LLM assistants.**
+Cross-model, cross-session, hybrid-retrieval, bi-temporal — exposed via the **Model Context Protocol** so Claude Code, Codex, Cursor, and any future MCP client share the same persistent brain.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 [![Postgres](https://img.shields.io/badge/Postgres-16%20%2B%20pgvector%20%2B%20AGE-336791)](https://www.postgresql.org/)
 [![MCP](https://img.shields.io/badge/MCP-stdio%20%2B%20HTTP-blue)](https://modelcontextprotocol.io/)
+[![Status](https://img.shields.io/badge/status-working-brightgreen)](#status)
 
-Stateful "second brain" memory system for LLM assistants — exposed via the **Model Context Protocol (MCP)** so Claude Code, OpenAI Codex, and other clients can read and write into it. Built on **.NET 10** with a single **Postgres** instance backing both vectors (pgvector) and a temporal knowledge graph (Apache AGE).
-
-## Why
-
-LLM context windows are big but not persistent. Across sessions you re-explain your stack, re-state your preferences, re-paste the same docs, and lose the small observations that build into expertise. This project gives an LLM a real memory: notes that supersede each other when reality changes, a graph that links a fact to the conversation that produced it, and a retrieval pipeline that returns *the right thing* instead of the most recent thing. Cross-model on purpose — Claude, GPT, Gemini, Anthropic via Bedrock all read from the same store.
-
-> **Status:** working. Hybrid retrieval, multi-note extraction, bi-temporal supersession, A-MEM auto-linking, reflection hierarchy, multi-tenant RLS, multi-provider LLM, MCP stdio + HTTP, Blazor admin UI, Azure Key Vault → OpenBao → JSON secret-source chain — all live and verified end-to-end. Retrieval baseline on the dev tenant: Recall@1 = 93%, Recall@3 = 100%, MRR = 0.96 across 15 LLM-generated queries.
+</div>
 
 ---
 
-## What it does, in 6 bullets
+## Why this exists
 
-- **Ingest**: episodes (chat turns, docs, observations) → LLM splits into 1-5 atomic Zettelkasten notes → embeds each (single batched call) → upserts entities and edges into a temporal graph → A-MEM auto-links to prior notes by similarity + LLM judgment.
-- **Search**: a query fans out to *three* retrievers — dense vector (pgvector cosine), BM25 (`tsvector`), and personalized PageRank (HippoRAG-2-inspired, seeded from LLM-extracted entity hints). Three lists fuse via Reciprocal Rank Fusion, optional time-decay, then an LLM reranker scores top candidates for relevance. Each hit carries per-stream provenance (`fromVector` / `fromBm25` / `fromGraph` / `rerankerScore`).
-- **Reflect**: scheduled background job synthesizes recent notes into a multi-paragraph reflection (Letta sleep-time pattern). Meta-reflections fold *across* prior reflections to surface long-arc themes.
-- **Bi-temporal supersede**: when an episode says "X used to … now …", the LLM emits the prior `(from, relation, to)` and the pipeline marks that edge `invalidated_at = now`. Search and graph view honor it; superseded edges show dashed in the Cytoscape viewer.
-- **Multi-tenant from the data layer**: Org → User → Project hierarchy, Postgres RLS enforced via a `memory_app` role (NOBYPASSRLS). API key bearer auth (SHA-256-hashed) resolves tenant scope per request.
-- **Operations surface**: REST + MCP HTTP at `/mcp`, MCP stdio for Claude Code / Codex CLI, Blazor WASM at `/` with Search / Notes / Entities / Graph (Cytoscape) / Secrets pages, CLI for init / api-key / backup / chat / tenants / eval.
+LLM context windows are big but **not persistent**. Every new session you re-explain your stack, re-state your preferences, re-paste the same docs, and lose the small observations that build into expertise. Vanilla RAG over a folder of files doesn't fix it — it has no memory of *when* a fact stopped being true, no graph of how things relate, no awareness of the conversation that produced a note.
+
+LLM Memory gives an assistant a real memory:
+
+- **Notes that supersede each other** when reality changes (`X used to … now …` is a first-class operation, not a deletion).
+- **A graph that links a fact to the conversation that produced it**, traversable bi-temporally (what did I believe last March? what's still valid now?).
+- **A retrieval pipeline that returns the *right* thing**, not the most recent — vector + BM25 + personalized PageRank + LLM rerank, with per-stream provenance attached to every hit.
+- **Cross-model on purpose**: Claude, GPT, Gemini, and Anthropic-via-Bedrock all read from the same store. Your memory follows you between assistants.
+
+---
+
+## What it looks like in use
+
+A typical Claude Code session — three calls, three different shapes of memory:
+
+```jsonc
+// 1. You hand the assistant something that happened today.
+{ "tool": "save_episode", "arguments": {
+    "source": "claude-code",
+    "content": "Switched the api-keys table from per-tenant role grants to a single \
+                NOBYPASSRLS memory_app role. Migration 20260504210400."
+} }
+// → 1 episode → 2 notes (Decision, Pattern) → 5 entities → 4 graph edges → embedded.
+
+// 2. Two weeks later you ask a question.
+{ "tool": "search_memory", "arguments": { "query": "how do we enforce tenant isolation?" } }
+// → 3 hits, top score 0.92, provenance:
+//   { fromVector: true, fromBm25: true, fromGraph: true, rerankerScore: 0.97 }
+//   Content: "Runtime connections must use memory_app (NOBYPASSRLS); postgres
+//             role bypasses RLS regardless of FORCE ROW LEVEL SECURITY."
+
+// 3. Once a week, ask for a synthesis across recent notes.
+{ "tool": "reflect", "arguments": { "scope": "weekly", "maxNotes": 30 } }
+// → multi-paragraph reflection identifying recurring themes, decisions made,
+//   open questions; stored as its own searchable note.
+```
+
+The same store is also reachable as plain HTTP (`POST /api/search`, `GET /api/notes`, `GET /api/backup/download`), through a Blazor admin UI, or via the `memory` CLI.
+
+---
+
+## What's actually in the box
+
+| | |
+|---|---|
+| 🧬 **Hybrid retrieval** | Vector (pgvector cosine, 3072-dim) + BM25 (`tsvector`) + Graph PPR (HippoRAG-2-style) + optional cross-modal image vector. Reciprocal Rank Fusion → time decay → LLM rerank. Per-hit provenance. |
+| 📝 **Multi-note extraction** | Each ingested episode is split by an LLM into 1-5 atomic Zettelkasten-style notes (Decision / Pattern / Observation / Learning / Error). Single batched embedding call. |
+| 🕒 **Bi-temporal graph** | AGE Cypher with `valid_from / valid_to / recorded_at / invalidated_at`. Supersession is a first-class operation, not a delete. Cytoscape graph viewer renders dashed edges for invalidated facts. |
+| 🔗 **A-MEM auto-linking** | New notes are linked to similar prior notes by similarity + LLM judgment, building a self-organizing knowledge web rather than a flat list. |
+| 🪞 **Reflection hierarchy** | Background service synthesizes recent notes into reflections; meta-reflections fold *across* prior reflections to surface long-arc themes (Letta sleep-time pattern). |
+| 🔐 **Multi-tenant by RLS** | Org → User → Project hierarchy enforced at the **database** layer via Postgres RLS + a `memory_app` NOBYPASSRLS role. API keys (SHA-256-hashed) resolve tenant scope. Admin keys gate `/api/secrets/*`. |
+| 🎛️ **Multi-provider LLM** | Azure OpenAI (Foundry v1), OpenAI direct, Anthropic, AWS Bedrock chat, Google Vertex chat. Switch via config — no code change. Embedding provider is independent from chat. |
+| 🧰 **MCP, REST, Web, CLI** | MCP stdio for Claude Code / Codex / Cursor; MCP HTTP at `/mcp` for cloud agents; REST at `/api/*`; Blazor admin UI at `/`; `memory` CLI for ops. |
+| 📦 **Backup, eval, ops** | One-click tenant zip (`/api/backup/download`), retrieval eval harness (Recall@K + MRR), Markdown round-trip (Obsidian-compatible), Azure Key Vault → OpenBao → JSON secret chain. |
+
+## Status
+
+**Working.** Hybrid retrieval, multi-note extraction, bi-temporal supersession, A-MEM auto-linking, reflection hierarchy, multi-tenant RLS, multi-provider LLM, MCP stdio + HTTP, Blazor admin UI, Azure Key Vault → OpenBao → JSON secret-source chain, backup zip, image embeddings, webhooks, dashboard — all live and verified end-to-end.
+
+**Retrieval baseline** on the dev tenant: Recall@1 = 93%, Recall@3 = 100%, MRR = 0.96 across 15 LLM-generated queries.
+
+**Security**: tenant isolation enforced at the DB layer (NOBYPASSRLS), `/api/secrets/*` requires admin-scoped API keys, header-based tenant fallback is dev-only, CORS allow-listed in production. See [SECURITY.md](SECURITY.md).
+
+---
 
 ## Architecture
 
 ```
-Claude Code / Codex CLI    ──stdio──▶  Memory.Mcp.Stdio
-Other MCP clients          ──HTTP+SSE──▶  Memory.Api  (also: REST + Blazor)
-Web UI (Blazor WASM)       ──HTTPS──▶ Memory.Api
+Claude Code / Codex / Cursor    ──stdio──▶  Memory.Mcp.Stdio
+Other MCP clients               ──HTTP+SSE──▶  Memory.Api  (also: REST + Blazor)
+Web UI (Blazor WASM)            ──HTTPS──▶ Memory.Api
 
-  Memory.Pipeline  ingest, search, reflect, save-filter, query expansion
+  Memory.Pipeline  ingest, search, reflect, save-filter, query expansion, linker
   Memory.Llm       multi-provider IChatClient + IEmbeddingGenerator
   Memory.Storage   EF Core + AGE Cypher + pgvector
   Memory.Secrets   Azure KV → OpenBao → JSON config-provider chain
@@ -42,12 +100,15 @@ Web UI (Blazor WASM)       ──HTTPS──▶ Memory.Api
                 │   • pgvector (cosine, 3072-dim)       │
                 │   • Apache AGE 1.6 (memory_graph)     │
                 │   • RLS via memory_app NOBYPASSRLS    │
-                │   • bi-temporal edges (valid_from/to, │
-                │     recorded_at, invalidated_at)      │
+                │   • bi-temporal edges                 │
+                │     (valid_from/to, recorded_at,      │
+                │      invalidated_at)                  │
                 └──────────────────────────────────────┘
 ```
 
 `Memory.AppHost` (.NET Aspire 13) orchestrates the API and binds an external connection string for Postgres — local dev uses an existing local Postgres (no Docker, by project rule).
+
+Deep dive: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** has the full data-flow diagrams for `save_episode` and `search_memory`, the key invariants, and the operational gotchas.
 
 ---
 
@@ -99,34 +160,43 @@ WSL2 forwards localhost ports to Windows automatically — the .NET app on Windo
 createdb -h localhost -U postgres llm_memory
 psql -h localhost -U postgres -d llm_memory -f scripts/init-db.sql
 
-# 2. Apply EF Core migrations as superuser (creates schema, tables, RLS policies,
-#    memory_app role with NOBYPASSRLS — postgres bypasses RLS, memory_app does not)
+# 2. Apply EF Core migrations as superuser. Creates schemas, tables, RLS policies,
+#    and the memory_app role with NOBYPASSRLS. (postgres bypasses RLS; memory_app
+#    does NOT — your runtime must connect as memory_app.)
 export MEMORY_DESIGN_CONNSTR="Host=localhost;Port=5432;Database=llm_memory;Username=postgres;Password=YOUR_PASS"
 dotnet ef database update --project src/Memory.Storage
 
-# 3. Seed an Org/User/Project
+# 3. Seed an Org / User / Project — the tenant scope every request will run under.
 dotnet run --project src/Memory.Cli -- init \
   --connection-string "$MEMORY_DESIGN_CONNSTR" \
   --org "MyOrg" --user-email "me@example.com" --user-name "Me" \
   --project "default" --embedding-model "text-embedding-3-large"
 # → prints three GUIDs (org / user / project)
 
-# 4. Configure Memory.Api appsettings.Local.json (copy from .example, fill in
-#    LLM creds and the runtime connection string with Username=memory_app)
+# 4. Mint an API key for /api/* and /mcp.
+dotnet run --project src/Memory.Cli -- api-key create \
+  --connection-string "$MEMORY_DESIGN_CONNSTR" \
+  --org <org-guid> --user <user-guid> --project <project-guid> \
+  --name "claude-code"
+# Add --admin if this key should be allowed to call /api/secrets/*.
 
-# 5. Run
+# 5. Configure Memory.Api appsettings.Local.json (copy from .example, fill in
+#    LLM creds and the runtime connection string with Username=memory_app).
+
+# 6. Run.
 dotnet run --project Memory.AppHost
 ```
 
-Aspire dashboard prints URLs. Click `memory-api`; visit `/`, `/openapi/v1.json`, `/api/health`. Visit Memory.Web for the admin UI.
+The Aspire dashboard prints the URLs. Click `memory-api`; visit `/`, `/openapi/v1.json`, `/api/health`. The Blazor admin UI is on Memory.Web.
 
 For Claude Code / Codex CLI:
 
 ```bash
 dotnet build src/Memory.Mcp.Stdio
+cp .mcp.json.example .mcp.json     # then fill in your bearer token
 ```
 
-then point your MCP config at the stdio binary (or use the project's `.mcp.json`). The server registers `save_episode`, `search_memory`, `get_entity`, `reflect`, `find_related_notes`.
+The MCP server registers `save_episode`, `search_memory`, `get_entity`, `reflect`, `find_related_notes` — and they appear as tools in your client.
 
 ---
 
@@ -142,10 +212,12 @@ All optional, all opt-in via `appsettings.Local.json` or env vars.
 | `TimeDecay:Enabled=true` (HalfLifeDays=30) | Recency boost on hits before reranking |
 | `QueryExpansion:Enabled=true` (MaxQueryWords=4) | LLM rewrites short queries into 2-3 variants |
 | `SaveFilter:Enabled=true` (MinScore=0.30) | LLM judges importance pre-ingest; drops noise |
+| `Cors:AllowedOrigins:[…]` | Production CORS allowlist (dev allows everything) |
+| `ReflectionSchedule:Enabled=true` + `Tenants:[…]` | BG synthesis per tenant on a fixed interval |
 | `MEMORY_KV_URI` | Pull secrets from Azure Key Vault (DefaultAzureCredential) |
 | `MEMORY_BAO_ADDR` + `MEMORY_BAO_TOKEN` | Pull secrets from OpenBao / HashiCorp Vault |
 
-The secret-source chain is **JSON < OpenBao < Azure KV** (later wins); each layer is opt-in by setting its env vars. Skip a layer entirely by leaving its env vars unset.
+The secret-source chain is **JSON < OpenBao < Azure KV** (later wins); each layer is opt-in by setting its env vars.
 
 ---
 
@@ -169,6 +241,7 @@ src/
 Memory.AppHost/             .NET Aspire orchestration
 tests/                      Domain / Storage / Pipeline / E2E
 scripts/                    init-db.sql, smoke-test-api.sh, smoke-test-mcp.sh
+docs/                       seven focused docs — see Documentation below
 ```
 
 ---
@@ -195,6 +268,7 @@ Run before/after a pipeline tweak (Reranker / GraphRetrieval / QueryExpansion / 
 memory init                Seed an organization / user / project tenant scope.
 memory api-key {create,list,revoke}
                            Manage Memory.Api bearer-token API keys.
+                           --admin marks a key as eligible for /api/secrets/*.
 memory backup {dump,restore,download}
                            Tenant data backup. dump/restore = direct DB JSON;
                            download = HTTP-streamed .zip from any deploy.
@@ -211,11 +285,9 @@ memory eval {gen-queries,run}
 
 ## Notes on testing
 
-Per project rule (in `~/.claude/CLAUDE.md`), tests against the LLM layer **always use real provider calls** — no mocks. Storage tests run against the user's local Postgres (no Testcontainers). Run live tests gated by `MEMORY_LIVE_LLM_TESTS=1` so they don't fire by accident.
+Tests against the LLM layer **always use real provider calls** — no mocks. Storage tests run against the user's local Postgres (no Testcontainers, by project rule). Run live tests gated by `MEMORY_LIVE_LLM_TESTS=1` so they don't fire by accident.
 
-`scripts/smoke-test-api.sh` is the comprehensive E2E probe — health, list endpoints, search variants, faceted filters, expansion, RLS isolation. Currently 19/19 passing.
-
-`scripts/smoke-test-mcp.sh` exercises the stdio MCP path: initialize → save_episode → search_memory → reflect.
+`scripts/smoke-test-api.sh` is the comprehensive E2E probe — health, list endpoints, search variants, faceted filters, expansion, RLS isolation. `scripts/smoke-test-mcp.sh` exercises the stdio MCP path: initialize → save_episode → search_memory → reflect.
 
 ---
 
@@ -226,7 +298,7 @@ Detailed docs live under [`docs/`](docs/):
 | Doc | What it covers |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module map, data flow diagrams for `save_episode` and `search_memory`, key invariants, where state lives, operational gotchas. |
-| [API.md](docs/API.md) | Every HTTP endpoint with curl examples — health, search, ingest, streaming chat, webhooks, eval, secrets admin, MCP transport. |
+| [API.md](docs/API.md) | Every HTTP endpoint with curl examples — health, search, ingest, streaming chat, webhooks, eval, secrets admin, backup, MCP transport. |
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | Every config section + env var. Defaults, sources, the secret-source chain (Azure KV → OpenBao → JSON). |
 | [MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md) | How to wire to Claude Code, Codex CLI, Cursor, Continue, ChatGPT desktop. Cross-model usage patterns. |
 | [USE-CASES.md](docs/USE-CASES.md) | Practical setups for programming notes, health log, personal life, research, shared collaboration. |
@@ -238,8 +310,8 @@ Detailed docs live under [`docs/`](docs/):
 ## Security
 
 Found a vulnerability? See [SECURITY.md](SECURITY.md). Tenant isolation, key
-hashing, and the secret-source chain are the load-bearing pieces — please
-report cleanly before opening a public issue.
+hashing, admin-scoped secret endpoints, and the secret-source chain are the
+load-bearing pieces — please report cleanly before opening a public issue.
 
 ## License
 
