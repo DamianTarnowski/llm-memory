@@ -20,6 +20,7 @@ internal sealed class SimpleIngestionPipeline(
     IImportanceJudge importanceJudge,
     IOptions<LlmOptions> llmOptions,
     IOptions<SaveFilterOptions> saveFilterOptions,
+    IEmbeddingBackfillQueue embeddingBackfillQueue,
     TimeProvider time,
     ILogger<SimpleIngestionPipeline> logger) : IIngestionPipeline
 {
@@ -31,7 +32,7 @@ internal sealed class SimpleIngestionPipeline(
         // Optional save filter — LLM judge decides whether the candidate is worth keeping
         // before we spend embedding + extraction cost. Disabled by default (fail-open).
         var filterOpts = saveFilterOptions.Value;
-        if (filterOpts.Enabled)
+        if (filterOpts.Enabled && !request.ForceSave)
         {
             var judgment = await importanceJudge.JudgeAsync(request.Source, request.Content, ct).ConfigureAwait(false);
             logger.LogInformation("Save filter judgment: score={Score:F2} save={Save} reason={Reason}",
@@ -50,12 +51,24 @@ internal sealed class SimpleIngestionPipeline(
             }
         }
 
-        var extraction = await extractor.ExtractAsync(request.Content, ct).ConfigureAwait(false);
+        var memoryTypeOverride = request.MemoryTypeOverride ?? TryParseMemoryType(request.Metadata);
+        var noteKindOverride = request.NoteKindOverride ?? TryParseNoteKind(request.Metadata);
+        var extraction = request.DirectNote
+            ? BuildDirectExtraction(
+                request,
+                memoryTypeOverride ?? MemoryType.Semantic,
+                noteKindOverride ?? NoteKind.General)
+            : await extractor.ExtractAsync(request.Content, ct).ConfigureAwait(false);
 
-        // Single batched embedding call for all atomic notes.
-        var embeddings = await llm.GetEmbeddings()
-            .GenerateAsync(extraction.Notes.Select(n => n.Content).ToList(), cancellationToken: ct)
-            .ConfigureAwait(false);
+        var embeddingVectors = new List<float[]>(extraction.Notes.Count);
+        if (!request.DeferEmbedding)
+        {
+            // Single batched embedding call for all atomic notes.
+            var embeddings = await llm.GetEmbeddings()
+                .GenerateAsync(extraction.Notes.Select(n => n.Content).ToList(), cancellationToken: ct)
+                .ConfigureAwait(false);
+            embeddingVectors.AddRange(embeddings.Select(e => e.Vector.ToArray()));
+        }
 
         var episode = new Episode
         {
@@ -82,21 +95,25 @@ internal sealed class SimpleIngestionPipeline(
                 ContextDescription = ext.ContextDescription,
                 Keywords = ext.Keywords,
                 Tags = ext.Tags,
-                Kind = ext.Kind,
+                Kind = noteKindOverride ?? ext.Kind,
+                MemoryType = memoryTypeOverride ?? ext.MemoryType,
                 CreatedAt = now,
             };
             notes.Add(note);
 
-            var vec = embeddings[i].Vector.ToArray();
-            noteEmbeddings.Add(new NoteEmbedding
+            if (!request.DeferEmbedding)
             {
-                NoteId = note.Id,
-                Project = scope.Project,
-                EmbeddingModel = llmOptions.Value.EmbeddingModel,
-                Dimensions = vec.Length,
-                Embedding = vec,
-                CreatedAt = now,
-            });
+                var vec = embeddingVectors[i];
+                noteEmbeddings.Add(new NoteEmbedding
+                {
+                    NoteId = note.Id,
+                    Project = scope.Project,
+                    EmbeddingModel = llmOptions.Value.EmbeddingModel,
+                    Dimensions = vec.Length,
+                    Embedding = vec,
+                    CreatedAt = now,
+                });
+            }
         }
 
         await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
@@ -181,23 +198,33 @@ internal sealed class SimpleIngestionPipeline(
 
         await tx.CommitAsync(ct).ConfigureAwait(false);
 
-        // A-MEM auto-linking — best-effort, per note, after main commit.
-        try
+        if (request.DeferEmbedding)
         {
-            for (var i = 0; i < notes.Count; i++)
+            await embeddingBackfillQueue.EnqueueAsync(
+                scope,
+                notes.Select(n => n.Id).ToArray(),
+                ct).ConfigureAwait(false);
+        }
+        else
+        {
+            // A-MEM auto-linking — best-effort, per note, after main commit.
+            try
             {
-                var linked = await linker
-                    .LinkRecentNoteAsync(notes[i].Id, noteEmbeddings[i].Embedding, ct)
-                    .ConfigureAwait(false);
-                if (linked > 0)
+                for (var i = 0; i < notes.Count; i++)
                 {
-                    logger.LogInformation("A-MEM linked note {NoteId} to {Count} prior notes.", notes[i].Id, linked);
+                    var linked = await linker
+                        .LinkRecentNoteAsync(notes[i].Id, noteEmbeddings[i].Embedding, ct)
+                        .ConfigureAwait(false);
+                    if (linked > 0)
+                    {
+                        logger.LogInformation("A-MEM linked note {NoteId} to {Count} prior notes.", notes[i].Id, linked);
+                    }
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "A-MEM auto-linking failed for episode {EpisodeId}; continuing.", episode.Id);
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "A-MEM auto-linking failed for episode {EpisodeId}; continuing.", episode.Id);
+            }
         }
 
         return new IngestionResult(
@@ -215,5 +242,96 @@ internal sealed class SimpleIngestionPipeline(
         if (entityMap.TryGetValue(name, out var id)) return id;
         var existing = await graph.GetEntitiesAsync(project, nameFilter: name, limit: 1, ct).ConfigureAwait(false);
         return existing.Count > 0 ? existing[0].Id : null;
+    }
+
+    private static MemoryType? TryParseMemoryType(IReadOnlyDictionary<string, string>? metadata)
+    {
+        if (metadata is null) return null;
+        return TryGet(metadata, "memory_type", out var raw) || TryGet(metadata, "memoryType", out raw)
+            ? ParseEnum<MemoryType>(raw)
+            : null;
+    }
+
+    private static NoteKind? TryParseNoteKind(IReadOnlyDictionary<string, string>? metadata)
+    {
+        if (metadata is null) return null;
+        return TryGet(metadata, "note_kind", out var raw) || TryGet(metadata, "kind", out raw)
+            ? ParseEnum<NoteKind>(raw)
+            : null;
+    }
+
+    private static ExtractionResult BuildDirectExtraction(
+        IngestionRequest request,
+        MemoryType memoryType,
+        NoteKind kind)
+    {
+        var context = ReadMetadata(request.Metadata, "applies_to")
+                      ?? ReadMetadata(request.Metadata, "scope")
+                      ?? request.Source;
+        var tags = ParseMetadataList(request.Metadata, "tags")
+            .Concat(new[] { request.Source, memoryType.ToString(), kind.ToString() })
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(12)
+            .ToList();
+
+        return new ExtractionResult(
+            new List<ExtractedNote>
+            {
+                new(
+                    Content: request.Content.Trim(),
+                    ContextDescription: context,
+                    Keywords: ParseMetadataList(request.Metadata, "keywords"),
+                    Tags: tags,
+                    Kind: kind,
+                    MemoryType: memoryType),
+            },
+            new List<ExtractedEntity>(),
+            new List<ExtractedRelationship>());
+    }
+
+    private static string? ReadMetadata(IReadOnlyDictionary<string, string>? metadata, string key) =>
+        metadata is not null && TryGet(metadata, key, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value.Trim()
+            : null;
+
+    private static List<string> ParseMetadataList(IReadOnlyDictionary<string, string>? metadata, string key)
+    {
+        var raw = ReadMetadata(metadata, key);
+        if (raw is null) return new List<string>();
+        return raw
+            .Split(new[] { ',', '|', '\n' }, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(12)
+            .ToList();
+    }
+
+    private static bool TryGet(IReadOnlyDictionary<string, string> values, string key, out string value)
+    {
+        foreach (var kv in values)
+        {
+            if (string.Equals(kv.Key, key, StringComparison.OrdinalIgnoreCase))
+            {
+                value = kv.Value;
+                return true;
+            }
+        }
+        value = "";
+        return false;
+    }
+
+    private static TEnum? ParseEnum<TEnum>(string? raw) where TEnum : struct, Enum
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var normalized = raw.Trim().Replace("-", "_", StringComparison.Ordinal).Replace("_", "", StringComparison.Ordinal);
+        foreach (var name in Enum.GetNames<TEnum>())
+        {
+            if (string.Equals(name, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                return Enum.Parse<TEnum>(name, ignoreCase: true);
+            }
+        }
+        return Enum.TryParse<TEnum>(raw, ignoreCase: true, out var parsed) ? parsed : null;
     }
 }

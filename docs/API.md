@@ -50,8 +50,9 @@ List recent episodes (raw inputs).
 - `limit`: 1-500, default 50
 
 ### `GET /api/notes?limit=N`
-List recent notes (extracted atoms). Each note carries `kind` (Decision,
-Learning, Error, Pattern, Observation, General).
+List recent notes (extracted atoms). Each note carries:
+- `kind`: statement shape (`Decision`, `Learning`, `Error`, `Pattern`, `Observation`, `General`)
+- `memoryType`: use axis (`Semantic`, `Episodic`, `Procedural`, `Preference`, `Document`, `Reflection`)
 
 ### `GET /api/entities?name=X&limit=N`
 List entities. Optional `name` filter does case-insensitive substring match.
@@ -81,7 +82,22 @@ curl -X POST http://localhost:5566/api/search \
     "tags": ["infrastructure"],
     "since": "2026-01-01T00:00:00Z",
     "kinds": ["Decision"],
-    "maxTokens": 2000
+    "memoryTypes": ["Semantic", "Procedural"],
+    "maxTokens": 2000,
+    "context": {
+      "caller": "codex",
+      "activeProject": "DevHubPlatform",
+      "conversationSummary": "We are wiring persistent agent memory into DevHub."
+    },
+    "route": {
+      "mode": "heavy_rag",
+      "standaloneQuery": "DevHub persistent agent memory secrets management decision",
+      "queryType": "follow_up",
+      "useGraph": true,
+      "useReranker": true,
+      "vectorWeight": 1.2,
+      "bm25Weight": 0.8
+    }
   }'
 ```
 
@@ -93,7 +109,21 @@ Body fields:
 | `tags` | string[] | OR-filter; matches notes with at least one of these tags |
 | `since` / `until` | ISO timestamp | created_at range |
 | `kinds` | string[] | filter by Note.Kind enum names |
+| `memoryTypes` | string[] | filter by MemoryType enum names (`Semantic`, `Episodic`, `Procedural`, `Preference`, `Document`, `Reflection`) |
 | `maxTokens` | int | when set, packs hits greedily by score until estimated chars/3.8 ≥ budget; takes precedence over `maxResults` |
+| `context` | object | optional caller/model/project/conversation context used by routing/rewrite |
+| `route` | object | optional smart-caller route override; use this from Codex/Claude/Opus instead of relying on the small-model router |
+
+Route override fields:
+| Field | Effect |
+|---|---|
+| `mode` | `memory_light`, `memory_medium`, `heavy_rag`, `graph_rag`, `document_rag`, `no_rag`, `write_memory` |
+| `standaloneQuery` | canonical query used for retrieval/reranking; useful for vague follow-ups |
+| `queryType` | free label such as `follow_up`, `factual`, `semantic`, `relational`, `document`, `coding_pattern` |
+| `variants` | optional query variants for vector recall |
+| `useVectorSearch` / `useBm25Search` / `useGraph` / `useReranker` / `useQueryExpansion` / `useImageSearch` | stream/stage switches |
+| `vectorWeight` / `bm25Weight` / `graphWeight` / `imageWeight` | weighted-RRF multipliers; `1.0` is normal |
+| `blobFilters` | reserved for future Blob/document RAG filters |
 
 Response:
 ```json
@@ -101,6 +131,17 @@ Response:
   "totalCandidates": 17,
   "abstain": false,
   "abstainReason": null,
+  "route": {
+    "originalQuery": "what did we decide about secrets management?",
+    "standaloneQuery": "DevHub persistent agent memory secrets management decision",
+    "mode": "HeavyRag",
+    "queryType": "follow_up",
+    "queryVariants": ["DevHub memory secrets decision"],
+    "useGraph": true,
+    "useReranker": true,
+    "vectorWeight": 1.2,
+    "bm25Weight": 0.8
+  },
   "hits": [{
     "noteId": "…",
     "content": "…",
@@ -138,9 +179,23 @@ curl -X POST http://localhost:5566/api/episodes \
     "content": "Decided to use OpenBao instead of HashiCorp Vault…",
     "source": "meeting-notes",
     "occurredAt": "2026-05-05T09:30:00Z",
+    "memoryType": "Semantic",
+    "kind": "Decision",
+    "forceSave": true,
+    "directNote": true,
+    "deferEmbedding": true,
     "metadata": { "meeting_id": "abc-123" }
   }'
 ```
+
+Use `directNote=true` for already-curated agent/user memories where the caller
+knows the exact note content, memory type and kind. This skips LLM extraction
+and entity extraction, and stores one note. By default, `deferEmbedding` follows
+`directNote`: the API returns after the note is saved, while a background worker
+creates the embedding and A-MEM links. Set `deferEmbedding=false` only when the
+caller requires the vector index to be ready before the response returns. Leave
+`directNote=false` for raw transcripts, document chunks or text that should be
+atomized by the extractor.
 
 With images (vision-capable provider required):
 ```bash
@@ -325,7 +380,42 @@ curl -X POST http://localhost:5566/api/eval/run \
 
 Response: Recall@1/3/5/10 + MRR + per-query rank.
 
-CLI wrapper: `memory eval gen-queries` then `memory eval run`.
+`/api/eval/run` also accepts optional `route` and `context` objects with the
+same shape as `/api/search`, so the same golden set can be replayed through
+different profiles:
+
+```json
+{
+  "queries": [{ "noteId": "…", "query": "…" }],
+  "topK": 10,
+  "route": { "mode": "graph_rag", "useReranker": false },
+  "context": { "caller": "memory-eval", "activeProject": "DevHubPlatform" }
+}
+```
+
+Response includes Recall@1/3/5/K, MRR, not-found count, abstention count,
+mean/P50/P95 latency and per-query rank/latency.
+
+Each query item may include `memoryTypes`, which is passed through to
+`/api/search`:
+
+```json
+{
+  "noteId": "9fb65e16-b35f-4948-9bc7-0ae2a48f4a5c",
+  "query": "Jakiego pliku lokalnej konfiguracji nie wolno publikować do release Memory.Api?",
+  "memoryTypes": ["Procedural"]
+}
+```
+
+CLI wrapper:
+
+```bash
+memory eval gen-queries --count 50 --out eval-queries.json
+memory eval run --in eval-queries.json --top-k 10 --out baseline.json
+memory eval run --in eval-queries.json --mode graph_rag --out graph.json
+memory eval run --in eval-queries.json --no-reranker --out no-reranker.json
+memory eval sweep --in eval-queries.json --out-dir eval-results
+```
 
 ---
 
@@ -364,15 +454,31 @@ JSON-RPC over HTTP+SSE per the MCP spec. Use this from agents that don't have
 stdio access (ChatGPT desktop, Cursor, etc).
 
 Tools registered:
-- `save_episode(source, content, occurredAt?)`
-- `search_memory(query, maxResults?)`
-- `get_entity(name, includeRelations?)`
-- `reflect(scope, since?, until?, maxNotes?)`
+- `save_user_preference(preference, category?, appliesTo?, triggerQuote?, rationale?, strength?, occurredAt?)`
+- `save_decision(decision, rationale?, alternatives?, appliesTo?, outcome?, occurredAt?)`
+- `save_coding_pattern(pattern, problem?, solution?, appliesTo?, example?, rationale?, occurredAt?)`
+- `save_ui_test_finding(app, finding, severity?, reproductionSteps?, expected?, actual?, evidence?, occurredAt?)`
+- `save_debug_finding(scope, symptom, rootCause?, fix?, evidence?, lesson?, occurredAt?)`
+- `save_episode(source, content, occurredAt?, memoryType?, kind?, forceSave?)`
+- `search_memory(query, maxResults?, caller?, activeProject?, conversationSummary?, currentTopic?, mode?, standaloneQuery?, queryType?, memoryTypes?, variants?, useGraph?, useReranker?, weights...)`
+- `get_entity(name, maxEdges?)`
+- `reflect(scope?, maxNotes?)`
 - `find_related_notes(noteId, maxResults?)`
+- `supersede_note(noteId, reason, replacementNoteId?)`
+- `invalidate_graph_edge(edgeId, reason)`
+- `list_memory_hygiene(limit?)`
 
 Resources surfaced:
-- `memory://episodes` (recent episodes)
-- `memory://notes` (recent notes)
-- `memory://reflections` (recent reflections)
+- `memory://project` (active project summary)
+- `memory://core/project-profile` (startup context)
+- `memory://core/user-preferences` (durable preferences/corrections)
+- `memory://core/recent-decisions` (active recent decisions)
+- `memory://core/procedures` (procedural memory)
+- `memory://entity/{name}` (entity and 1-hop graph edges)
+- `memory://note/{id}` (single note details)
+- `memory://reflection/latest` (latest project reflection)
+
+Prompts surfaced:
+- `memory_agent_guidance` (agent instructions for proactive search, smart routing, and durable preference/correction saving)
 
 Memory.Mcp.Stdio offers the same tools over stdio for local CLI clients.

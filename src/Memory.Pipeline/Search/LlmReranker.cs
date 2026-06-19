@@ -80,7 +80,7 @@ internal sealed class LlmReranker(
                         : new SearchHitProvenance(false, false, false, 0, 0, 0, x.score)))
                 .ToList();
 
-            return reranked.Count > 0 ? reranked : candidates;
+            return reranked;
         }
         catch (Exception ex)
         {

@@ -114,9 +114,11 @@ internal sealed class NoteConfiguration : IEntityTypeConfiguration<Note>
         b.Property(n => n.Keywords).HasColumnName("keywords").HasColumnType("text[]");
         b.Property(n => n.Tags).HasColumnName("tags").HasColumnType("text[]");
         b.Property(n => n.Kind).HasColumnName("kind").HasConversion<short>();
+        b.Property(n => n.MemoryType).HasColumnName("memory_type").HasConversion<short>();
         b.Property(n => n.CreatedAt).HasColumnName("created_at");
         b.Property(n => n.SupersededAt).HasColumnName("superseded_at");
         b.HasIndex(n => n.Project);
+        b.HasIndex(n => new { n.Project, n.MemoryType });
         b.HasIndex(n => n.SourceEpisode);
 
         b.HasOne<Project>().WithMany()

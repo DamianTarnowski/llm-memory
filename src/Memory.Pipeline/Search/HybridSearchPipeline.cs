@@ -19,6 +19,7 @@ internal sealed class HybridSearchPipeline(
     IReranker reranker,
     IGraphRetriever graphRetriever,
     IQueryExpander queryExpander,
+    IQueryRouter queryRouter,
     ImageEmbedderHolder imageEmbedderHolder,
     IOptions<TimeDecayOptions> timeDecayOptions,
     IOptions<AbstentionOptions> abstentionOptions,
@@ -36,16 +37,30 @@ internal sealed class HybridSearchPipeline(
             return new SearchResult(Array.Empty<SearchHit>(), 0);
         }
 
-        var candidateLimit = Math.Max(20, request.MaxResults * CandidateMultiplier);
+        var route = await queryRouter.RouteAsync(request, ct).ConfigureAwait(false);
+        if (!route.ShouldSearch)
+        {
+            return new SearchResult(
+                Array.Empty<SearchHit>(),
+                0,
+                Abstain: true,
+                AbstainReason: route.SkipReason ?? "Router skipped retrieval.",
+                Route: route.ToTrace(request.Query, Array.Empty<string>()));
+        }
 
-        // Optional query expansion — for short queries, generate variants and embed each.
-        // The original query stays as variants[0] so downstream BM25/graph still use it untouched.
-        var variants = await queryExpander.ExpandAsync(request.Query, ct).ConfigureAwait(false);
+        var effectiveMaxResults = Math.Min(request.MaxResults, route.MaxResults);
+        var effectiveRequest = request with
+        {
+            Query = route.StandaloneQuery,
+            MaxResults = effectiveMaxResults,
+        };
+        var candidateLimit = Math.Max(20, effectiveRequest.MaxResults * CandidateMultiplier);
 
-        // Single batched embedding call across all variants.
-        var embeddings = await llm.GetEmbeddings()
-            .GenerateAsync(variants.ToList(), cancellationToken: ct)
-            .ConfigureAwait(false);
+        // Optional query routing + expansion. The effective standalone query stays
+        // variants[0]. Router/expander variants feed vector recall; BM25/graph use
+        // the canonical standalone query for precision and explainability.
+        var variants = await BuildQueryVariantsAsync(effectiveRequest.Query, route, ct).ConfigureAwait(false);
+        var routeTrace = route.ToTrace(request.Query, variants);
 
         if (db.Database.GetDbConnection().State != ConnectionState.Open)
         {
@@ -56,17 +71,32 @@ internal sealed class HybridSearchPipeline(
         // Sequential retrieval — all three retrievers share the same DbContext / NpgsqlConnection
         // so they cannot run in parallel ("a command is already in progress"). Per-variant
         // vector hits are RRF-fused into a single vector stream before joining BM25 and graph.
-        var vectorPerVariant = new List<List<RankedHit>>(variants.Count);
-        for (var i = 0; i < variants.Count; i++)
+        var vectorHits = new List<RankedHit>();
+        if (route.UseVectorSearch && route.VectorWeight > 0)
         {
-            var queryVector = new Pgvector.Vector(embeddings[i].Vector.ToArray());
-            var hits = await VectorSearchAsync(conn, queryVector, request, candidateLimit, ct).ConfigureAwait(false);
-            vectorPerVariant.Add(hits);
-        }
-        var vectorHits = RrfFuser.MergeVectorStreams(vectorPerVariant, RrfK);
+            // Single batched embedding call across all variants.
+            var embeddings = await llm.GetEmbeddings()
+                .GenerateAsync(variants.ToList(), cancellationToken: ct)
+                .ConfigureAwait(false);
 
-        var bm25Hits = await Bm25SearchAsync(conn, request, candidateLimit, ct).ConfigureAwait(false);
-        var graphRaw = await graphRetriever.RetrieveAsync(request.Query, candidateLimit, ct).ConfigureAwait(false);
+            var vectorPerVariant = new List<List<RankedHit>>(variants.Count);
+            for (var i = 0; i < variants.Count; i++)
+            {
+                var queryVector = new Pgvector.Vector(embeddings[i].Vector.ToArray());
+                var hits = await VectorSearchAsync(conn, queryVector, effectiveRequest, candidateLimit, ct).ConfigureAwait(false);
+                vectorPerVariant.Add(hits);
+            }
+            vectorHits = RrfFuser.MergeVectorStreams(vectorPerVariant, RrfK);
+        }
+
+        var bm25Hits = route.UseBm25Search && route.Bm25Weight > 0
+            ? await Bm25SearchAsync(conn, effectiveRequest, candidateLimit, ct).ConfigureAwait(false)
+            : new List<RankedHit>();
+
+        var graphRaw = route.UseGraph && route.GraphWeight > 0
+            ? await graphRetriever.RetrieveAsync(effectiveRequest.Query, candidateLimit, ct).ConfigureAwait(false)
+            : Array.Empty<GraphRetrievalHit>();
+        graphRaw = await ApplyNoteFiltersToGraphHitsAsync(graphRaw, effectiveRequest, ct).ConfigureAwait(false);
 
         var graphHits = graphRaw
             .Select((h, i) => new RankedHit(h.NoteId, h.Content, i + 1, 1.0 - h.Score, h.RelatedEntities, FromVector: false, FromBm25: false))
@@ -76,15 +106,25 @@ internal sealed class HybridSearchPipeline(
         // (Vertex multimodalembedding) is configured AND there are image_embeddings
         // rows for this project. The text query is embedded in the same multimodal
         // space, then we cosine-search image_embeddings.
-        var imageHits = await ImageVectorSearchAsync(conn, request, candidateLimit, ct).ConfigureAwait(false);
+        var imageHits = route.UseImageSearch && route.ImageWeight > 0
+            ? await ImageVectorSearchAsync(conn, effectiveRequest, candidateLimit, ct).ConfigureAwait(false)
+            : new List<RankedHit>();
 
-        var fused = RrfFuser.Fuse(vectorHits, bm25Hits, graphHits, imageHits, RrfK);
+        var fused = RrfFuser.Fuse(
+            vectorHits,
+            bm25Hits,
+            graphHits,
+            imageHits,
+            RrfK,
+            new RetrievalWeights(route.VectorWeight, route.Bm25Weight, route.GraphWeight, route.ImageWeight));
 
         // Optional time-decay: re-weight by note age before reranking.
         var decayed = await ApplyTimeDecayAsync(fused, ct).ConfigureAwait(false);
 
-        var reranked = await reranker.RerankAsync(request.Query, decayed, ct).ConfigureAwait(false);
-        var top = reranked.Take(request.MaxResults).ToList();
+        var reranked = route.UseReranker
+            ? await reranker.RerankAsync(effectiveRequest.Query, decayed, ct).ConfigureAwait(false)
+            : decayed;
+        var top = reranked.Take(effectiveRequest.MaxResults).ToList();
 
         // Optional abstention check — if the reranker (or fusion when no rerank ran)
         // can't surface a confident hit, signal it explicitly instead of feeding the
@@ -103,18 +143,10 @@ internal sealed class HybridSearchPipeline(
             {
                 abstainReason = $"Top reranker score {topRer:F2} below confidence threshold {abstainOpts.MinTopScore:F2}.";
             }
-            else if (top[0].Provenance?.RerankerScore is null && top[0].Score < abstainOpts.MinFusedScore)
-            {
-                // Reranker fell back to RRF order (every candidate filtered as irrelevant)
-                // AND the top RRF score is below the multi-retriever-reinforcement floor —
-                // i.e. only one retriever contributed and weakly. Real signal across two
-                // retrievers gives ~2/(60+rank) ~= 0.033 at rank 1.
-                abstainReason = $"Reranker filtered all candidates; fallback RRF score {top[0].Score:F4} indicates no real overlap.";
-            }
 
             if (abstainReason is not null)
             {
-                return new SearchResult(Array.Empty<SearchHit>(), fused.Count, Abstain: true, AbstainReason: abstainReason);
+                return new SearchResult(Array.Empty<SearchHit>(), fused.Count, Abstain: true, AbstainReason: abstainReason, Route: routeTrace);
             }
         }
 
@@ -135,7 +167,33 @@ internal sealed class HybridSearchPipeline(
             top = packed;
         }
 
-        return new SearchResult(top, fused.Count);
+        return new SearchResult(top, fused.Count, Route: routeTrace);
+    }
+
+    private async Task<IReadOnlyList<string>> BuildQueryVariantsAsync(
+        string query,
+        QueryRoute route,
+        CancellationToken ct)
+    {
+        var variants = new List<string> { query };
+
+        if (route.Variants is { Count: > 0 })
+        {
+            variants.AddRange(route.Variants);
+        }
+
+        if (route.UseQueryExpansion)
+        {
+            var expanded = await queryExpander.ExpandAsync(query, ct).ConfigureAwait(false);
+            variants.AddRange(expanded);
+        }
+
+        return variants
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToArray();
     }
 
     private static int EstimateTokens(string text) =>
@@ -167,6 +225,51 @@ internal sealed class HybridSearchPipeline(
             .OrderByDescending(h => h.Score)
             .ToList();
     }
+
+    private async Task<IReadOnlyList<GraphRetrievalHit>> ApplyNoteFiltersToGraphHitsAsync(
+        IReadOnlyList<GraphRetrievalHit> hits,
+        SearchRequest request,
+        CancellationToken ct)
+    {
+        if (hits.Count == 0 || !HasNoteFilters(request)) return hits;
+
+        var ids = hits.Select(h => h.NoteId.Value).ToArray();
+        var query = db.Notes
+            .FromSqlInterpolated($"SELECT * FROM memory.notes WHERE id = ANY({ids})")
+            .Where(n => n.SupersededAt == null);
+
+        if (request.Tags is { Count: > 0 })
+        {
+            query = query.Where(n => n.Tags.Any(t => request.Tags.Contains(t)));
+        }
+        if (request.Since.HasValue)
+        {
+            query = query.Where(n => n.CreatedAt >= request.Since.Value);
+        }
+        if (request.Until.HasValue)
+        {
+            query = query.Where(n => n.CreatedAt <= request.Until.Value);
+        }
+        if (request.Kinds is { Count: > 0 })
+        {
+            query = query.Where(n => request.Kinds.Contains(n.Kind));
+        }
+        if (request.MemoryTypes is { Count: > 0 })
+        {
+            query = query.Where(n => request.MemoryTypes.Contains(n.MemoryType));
+        }
+
+        var allowed = await query.Select(n => n.Id).ToListAsync(ct).ConfigureAwait(false);
+        var allowedSet = allowed.ToHashSet();
+        return hits.Where(h => allowedSet.Contains(h.NoteId)).ToArray();
+    }
+
+    private static bool HasNoteFilters(SearchRequest request) =>
+        request.Tags is { Count: > 0 }
+        || request.Since.HasValue
+        || request.Until.HasValue
+        || request.Kinds is { Count: > 0 }
+        || request.MemoryTypes is { Count: > 0 };
 
     private static async Task<List<RankedHit>> VectorSearchAsync(
         NpgsqlConnection conn,
@@ -336,6 +439,14 @@ internal sealed class HybridSearchPipeline(
             cmd.Parameters.Add(new NpgsqlParameter("kinds", NpgsqlDbType.Array | NpgsqlDbType.Smallint)
             {
                 Value = request.Kinds.Select(k => (short)k).ToArray(),
+            });
+        }
+        if (request.MemoryTypes is { Count: > 0 })
+        {
+            sql.Append(" AND n.memory_type = ANY(@memory_types)");
+            cmd.Parameters.Add(new NpgsqlParameter("memory_types", NpgsqlDbType.Array | NpgsqlDbType.Smallint)
+            {
+                Value = request.MemoryTypes.Select(t => (short)t).ToArray(),
             });
         }
     }

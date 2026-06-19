@@ -21,14 +21,13 @@ public sealed class Note
     public List<string> Keywords { get; init; } = new();
     public List<string> Tags { get; init; } = new();
     public NoteKind Kind { get; init; } = NoteKind.General;
+    public MemoryType MemoryType { get; init; } = MemoryType.Semantic;
     public required DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset? SupersededAt { get; init; }
 }
 
 /// <summary>
-/// Coarse memory-type ontology — five durable kinds plus a general fallback.
-/// Aligns with leading 2026 memory systems (Hindsight, LongMemEval) which
-/// consistently surface this taxonomy as a retrieval-quality lever.
+/// Content shape of a note: what kind of statement it is.
 /// </summary>
 public enum NoteKind
 {
@@ -43,6 +42,27 @@ public enum NoteKind
     Error = 4,
     /// <summary>A repeating pattern, heuristic, principle, or rule-of-thumb.</summary>
     Pattern = 5,
+}
+
+/// <summary>
+/// Retrieval/use axis of a note: how agents should use it.
+/// This is separate from <see cref="NoteKind"/> so a note can be both
+/// a Decision and Semantic, or a Pattern and Procedural.
+/// </summary>
+public enum MemoryType
+{
+    /// <summary>Durable facts about projects, systems, entities, or concepts.</summary>
+    Semantic = 0,
+    /// <summary>Events, sessions, deploys, incidents, and time-bound observations.</summary>
+    Episodic = 1,
+    /// <summary>Workflows, coding patterns, checklists, and how-to knowledge.</summary>
+    Procedural = 2,
+    /// <summary>User or team preferences, corrections, and habits.</summary>
+    Preference = 3,
+    /// <summary>Documents, source chunks, blob references, and imported material.</summary>
+    Document = 4,
+    /// <summary>Consolidated summaries or higher-level reflections.</summary>
+    Reflection = 5,
 }
 
 public sealed class ImageEmbedding

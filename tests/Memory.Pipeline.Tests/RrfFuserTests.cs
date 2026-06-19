@@ -137,6 +137,34 @@ public sealed class RrfFuserTests
     }
 
     [Fact]
+    public void Fuse_applies_stream_weights()
+    {
+        var a = NewNote();
+        var b = NewNote();
+
+        var vector = new List<RankedHit>
+        {
+            Hit(a, "vector-first", 1),
+        };
+        var bm25 = new List<RankedHit>
+        {
+            Hit(b, "bm25-first", 1),
+        };
+
+        var fused = RrfFuser.Fuse(
+            vector,
+            bm25,
+            graph: new(),
+            image: new(),
+            k: K,
+            weights: new RetrievalWeights(Vector: 0.25, Bm25: 2.0, Graph: 1.0, Image: 1.0));
+
+        Assert.Equal(b, fused[0].NoteId);
+        Assert.Equal(a, fused[1].NoteId);
+        Assert.True(fused[0].Provenance!.Bm25Score > fused[1].Provenance!.VectorScore);
+    }
+
+    [Fact]
     public void MergeVectorStreams_returns_sole_list_unchanged_for_single_variant()
     {
         var a = NewNote();

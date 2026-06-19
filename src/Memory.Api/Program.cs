@@ -152,7 +152,7 @@ app.MapGet("/api/notes", async (MemoryDbContext db, int limit = 50, Cancellation
     await db.Notes
         .OrderByDescending(n => n.CreatedAt)
         .Take(Math.Clamp(limit <= 0 ? 50 : limit, 1, 500))
-        .Select(n => new { id = n.Id.Value, content = n.Content, contextDescription = n.ContextDescription, keywords = n.Keywords, tags = n.Tags, kind = n.Kind.ToString(), createdAt = n.CreatedAt })
+        .Select(n => new { id = n.Id.Value, content = n.Content, contextDescription = n.ContextDescription, keywords = n.Keywords, tags = n.Tags, kind = n.Kind.ToString(), memoryType = n.MemoryType.ToString(), createdAt = n.CreatedAt })
         .ToListAsync(ct));
 
 app.MapGet("/api/reflections", async (MemoryDbContext db, int limit = 50, CancellationToken ct = default) =>
@@ -216,7 +216,13 @@ app.MapPost("/api/chat", async (
     var contextBudget = Math.Clamp(body.MaxContextTokens ?? 2000, 200, 8000);
 
     var search = await pipeline.SearchAsync(
-        new SearchRequest(body.Query, maxHits, MaxTokens: contextBudget), ct).ConfigureAwait(false);
+        new SearchRequest(
+            body.Query,
+            maxHits,
+            MaxTokens: contextBudget,
+            Context: body.Context?.ToSearchContext(),
+            RouteOverride: body.Route?.ToQueryRoute(body.Query, maxHits)),
+        ct).ConfigureAwait(false);
 
     var contextLines = search.Abstain
         ? new List<string>()
@@ -237,6 +243,7 @@ app.MapPost("/api/chat", async (
         candidates = search.TotalCandidates,
         abstain = search.Abstain,
         abstainReason = search.AbstainReason,
+        route = search.Route,
     });
     await context.Response.WriteAsync($"data: {meta}\n\n", ct).ConfigureAwait(false);
     await context.Response.Body.FlushAsync(ct).ConfigureAwait(false);
@@ -333,7 +340,12 @@ app.MapPost("/api/episodes", async (
         Source: body.Source ?? "api",
         Content: content,
         OccurredAt: body.OccurredAt,
-        Metadata: body.Metadata),
+        Metadata: body.Metadata,
+        ForceSave: body.ForceSave ?? false,
+        MemoryTypeOverride: MemoryApiParsing.ParseLooseEnum<MemoryType>(body.MemoryType),
+        NoteKindOverride: MemoryApiParsing.ParseLooseEnum<NoteKind>(body.Kind),
+        DirectNote: body.DirectNote ?? false,
+        DeferEmbedding: body.DeferEmbedding ?? body.DirectNote ?? false),
         ct);
 
     // Cross-modal embedding — store the image vector keyed to the first note
@@ -387,12 +399,34 @@ app.MapPost("/api/search", async (ISearchPipeline pipeline, SearchPostBody body,
             .Select(v => v!.Value)
             .ToList();
     }
-    var result = await pipeline.SearchAsync(new SearchRequest(body.Query, body.MaxResults ?? 20, body.Tags, body.Since, body.Until, kinds, body.MaxTokens), ct);
+    IReadOnlyList<MemoryType>? memoryTypes = null;
+    if (body.MemoryTypes is { Count: > 0 })
+    {
+        memoryTypes = body.MemoryTypes
+            .Select(k => MemoryApiParsing.ParseLooseEnum<MemoryType>(k))
+            .Where(v => v.HasValue)
+            .Select(v => v!.Value)
+            .ToList();
+    }
+    var result = await pipeline.SearchAsync(
+        new SearchRequest(
+            Query: body.Query,
+            MaxResults: body.MaxResults ?? 20,
+            Tags: body.Tags,
+            Since: body.Since,
+            Until: body.Until,
+            Kinds: kinds,
+            MaxTokens: body.MaxTokens,
+            Context: body.Context?.ToSearchContext(),
+            RouteOverride: body.Route?.ToQueryRoute(body.Query, body.MaxResults ?? 20),
+            MemoryTypes: memoryTypes),
+        ct);
     return Results.Ok(new
     {
         totalCandidates = result.TotalCandidates,
         abstain = result.Abstain,
         abstainReason = result.AbstainReason,
+        route = result.Route,
         hits = result.Hits.Select(h => new
         {
             noteId = h.NoteId.Value,
@@ -507,7 +541,7 @@ app.MapPost("/api/eval/queries", async (
         .Where(n => n.SupersededAt == null)
         .OrderByDescending(n => n.CreatedAt)
         .Take(count)
-        .Select(n => new { n.Id, n.Content, n.ContextDescription })
+        .Select(n => new { n.Id, n.Content, n.ContextDescription, n.Kind, n.MemoryType })
         .ToListAsync(ct);
 
     const string sysPrompt = """
@@ -534,7 +568,7 @@ app.MapPost("/api/eval/queries", async (
             var resp = await chat.GetResponseAsync(messages, cancellationToken: ct).ConfigureAwait(false);
             var query = (resp.Text ?? "").Trim().Trim('"');
             if (string.IsNullOrEmpty(query)) continue;
-            results.Add(new { noteId = n.Id.Value, query, contentPreview = n.Content[..Math.Min(120, n.Content.Length)] });
+            results.Add(new { noteId = n.Id.Value, query, kind = n.Kind.ToString(), memoryType = n.MemoryType.ToString(), contentPreview = n.Content[..Math.Min(120, n.Content.Length)] });
         }
         catch { /* skip notes the LLM rejects */ }
     }
@@ -556,7 +590,16 @@ app.MapPost("/api/eval/run", async (
     var perQuery = new List<EvalPerQuery>(req.Queries.Count);
     foreach (var q in req.Queries)
     {
-        var result = await pipeline.SearchAsync(new SearchRequest(q.Query, topK), ct).ConfigureAwait(false);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = await pipeline.SearchAsync(
+            new SearchRequest(
+                Query: q.Query,
+                MaxResults: topK,
+                Context: req.Context?.ToSearchContext(),
+                RouteOverride: req.Route?.ToQueryRoute(q.Query, topK),
+                MemoryTypes: MemoryApiParsing.ParseMemoryTypes(q.MemoryTypes)),
+            ct).ConfigureAwait(false);
+        sw.Stop();
         var rank = -1;
         for (var i = 0; i < result.Hits.Count; i++)
         {
@@ -566,12 +609,27 @@ app.MapPost("/api/eval/run", async (
                 break;
             }
         }
-        perQuery.Add(new EvalPerQuery(q.NoteId, q.Query, rank, result.TotalCandidates));
+        perQuery.Add(new EvalPerQuery(
+            q.NoteId,
+            q.Query,
+            rank,
+            result.TotalCandidates,
+            sw.ElapsedMilliseconds,
+            result.Abstain,
+            result.AbstainReason,
+            result.Route?.Mode));
     }
 
     int Recall(int k) => perQuery.Count(p => p.Rank > 0 && p.Rank <= k);
     var n = perQuery.Count;
     double Mrr() => n == 0 ? 0 : perQuery.Sum(p => p.Rank > 0 ? 1.0 / p.Rank : 0.0) / n;
+    static double Percentile(IReadOnlyList<long> sorted, double p)
+    {
+        if (sorted.Count == 0) return 0;
+        var index = Math.Clamp((int)Math.Ceiling(sorted.Count * p) - 1, 0, sorted.Count - 1);
+        return sorted[index];
+    }
+    var latencies = perQuery.Select(p => p.LatencyMs).Order().ToArray();
 
     return Results.Ok(new
     {
@@ -582,6 +640,11 @@ app.MapPost("/api/eval/run", async (
         recallAt10 = n == 0 ? 0 : (double)Recall(Math.Min(10, topK)) / n,
         mrr = Mrr(),
         notFound = perQuery.Count(p => p.Rank < 0),
+        abstained = perQuery.Count(p => p.Abstained),
+        meanLatencyMs = n == 0 ? 0 : perQuery.Average(p => p.LatencyMs),
+        p50LatencyMs = Percentile(latencies, 0.50),
+        p95LatencyMs = Percentile(latencies, 0.95),
+        route = req.Route,
         perQuery,
     });
 });
@@ -599,30 +662,149 @@ public sealed record SearchPostBody(
     DateTimeOffset? Since = null,
     DateTimeOffset? Until = null,
     IReadOnlyList<string>? Kinds = null,
-    int? MaxTokens = null);
+    IReadOnlyList<string>? MemoryTypes = null,
+    int? MaxTokens = null,
+    SearchContextBody? Context = null,
+    SearchRouteBody? Route = null);
+
+public sealed record SearchContextBody(
+    string? Caller = null,
+    string? Model = null,
+    string? ActiveProject = null,
+    IReadOnlyList<string>? AllowedScopes = null,
+    string? ConversationSummary = null,
+    IReadOnlyList<string>? RecentTurns = null,
+    string? CurrentTopic = null,
+    IReadOnlyList<string>? LastHitIds = null,
+    Dictionary<string, string>? Metadata = null)
+{
+    public SearchContext ToSearchContext() => new(
+        Caller,
+        Model,
+        ActiveProject,
+        AllowedScopes,
+        ConversationSummary,
+        RecentTurns,
+        CurrentTopic,
+        LastHitIds,
+        Metadata);
+}
+
+public sealed record SearchRouteBody(
+    bool? ShouldSearch = null,
+    string? Mode = null,
+    string? StandaloneQuery = null,
+    string? QueryType = null,
+    int? MaxResults = null,
+    IReadOnlyList<string>? Variants = null,
+    bool? UseVectorSearch = null,
+    bool? UseBm25Search = null,
+    bool? UseGraph = null,
+    bool? UseReranker = null,
+    bool? UseQueryExpansion = null,
+    bool? UseImageSearch = null,
+    double? VectorWeight = null,
+    double? Bm25Weight = null,
+    double? GraphWeight = null,
+    double? ImageWeight = null,
+    string? RouterModel = "smart-caller",
+    double? Confidence = null,
+    string? SkipReason = null,
+    Dictionary<string, string>? BlobFilters = null)
+{
+    public QueryRoute ToQueryRoute(string originalQuery, int defaultMaxResults) => new(
+        ShouldSearch: ShouldSearch ?? true,
+        Mode: QueryRoute.ParseMode(Mode),
+        StandaloneQuery: string.IsNullOrWhiteSpace(StandaloneQuery) ? originalQuery : StandaloneQuery!,
+        QueryType: QueryType ?? "smart_caller",
+        MaxResults: MaxResults ?? defaultMaxResults,
+        Variants: Variants,
+        UseVectorSearch: UseVectorSearch ?? true,
+        UseBm25Search: UseBm25Search ?? true,
+        UseGraph: UseGraph ?? true,
+        UseReranker: UseReranker ?? true,
+        UseQueryExpansion: UseQueryExpansion ?? true,
+        UseImageSearch: UseImageSearch ?? true,
+        VectorWeight: VectorWeight ?? 1.0,
+        Bm25Weight: Bm25Weight ?? 1.0,
+        GraphWeight: GraphWeight ?? 1.0,
+        ImageWeight: ImageWeight ?? 1.0,
+        RouterModel: RouterModel,
+        Confidence: Confidence,
+        SkipReason: SkipReason,
+        BlobFilters: BlobFilters);
+}
 
 public sealed record SecretDataPostBody(string Path, Dictionary<string, string>? Keys);
-public sealed record EvalPerQuery(Guid NoteId, string Query, int Rank, int TotalCandidates);
+public sealed record EvalPerQuery(
+    Guid NoteId,
+    string Query,
+    int Rank,
+    int TotalCandidates,
+    long LatencyMs,
+    bool Abstained,
+    string? AbstainReason,
+    string? RouteMode);
 
 namespace Memory.Api
 {
     public sealed record EvalQueriesRequest(int? Count);
-    public sealed record EvalRunRequest(IReadOnlyList<EvalQueryItem> Queries, int? TopK);
-    public sealed record EvalQueryItem(Guid NoteId, string Query);
+    public sealed record EvalRunRequest(
+        IReadOnlyList<EvalQueryItem> Queries,
+        int? TopK,
+        global::SearchRouteBody? Route = null,
+        global::SearchContextBody? Context = null);
+    public sealed record EvalQueryItem(Guid NoteId, string Query, IReadOnlyList<string>? MemoryTypes = null);
 
     public sealed record IngestEpisodeRequest(
         string Content,
         string? Source = null,
         DateTimeOffset? OccurredAt = null,
         Dictionary<string, string>? Metadata = null,
-        IReadOnlyList<EpisodeImage>? Images = null);
+        IReadOnlyList<EpisodeImage>? Images = null,
+        string? MemoryType = null,
+        string? Kind = null,
+        bool? ForceSave = null,
+        bool? DirectNote = null,
+        bool? DeferEmbedding = null);
 
     public sealed record EpisodeImage(string Data, string? MimeType = null, string? Caption = null);
 
     public sealed record ChatRequestBody(
         string Query,
         int? MaxHits = 5,
-        int? MaxContextTokens = 2000);
+        int? MaxContextTokens = 2000,
+        SearchContextBody? Context = null,
+        SearchRouteBody? Route = null);
 }
 
 public partial class Program;
+
+internal static class MemoryApiParsing
+{
+    public static TEnum? ParseLooseEnum<TEnum>(string? raw) where TEnum : struct, Enum
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var normalized = raw.Trim().Replace("-", "_", StringComparison.Ordinal).Replace("_", "", StringComparison.Ordinal);
+        foreach (var name in Enum.GetNames<TEnum>())
+        {
+            if (string.Equals(name, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                return Enum.Parse<TEnum>(name, ignoreCase: true);
+            }
+        }
+        return Enum.TryParse<TEnum>(raw, ignoreCase: true, out var parsed) ? parsed : null;
+    }
+
+    public static IReadOnlyList<MemoryType>? ParseMemoryTypes(IReadOnlyList<string>? raw)
+    {
+        if (raw is null || raw.Count == 0) return null;
+        var parsed = raw
+            .Select(ParseLooseEnum<MemoryType>)
+            .Where(t => t.HasValue)
+            .Select(t => t!.Value)
+            .Distinct()
+            .ToArray();
+        return parsed.Length == 0 ? null : parsed;
+    }
+}

@@ -63,14 +63,14 @@ The same store is also reachable as plain HTTP (`POST /api/search`, `GET /api/no
 | | |
 |---|---|
 | 🧬 **Hybrid retrieval** | Vector (pgvector cosine, 3072-dim) + BM25 (`tsvector`) + Graph PPR (HippoRAG-2-style) + optional cross-modal image vector. Reciprocal Rank Fusion → time decay → LLM rerank. Per-hit provenance. |
-| 📝 **Multi-note extraction** | Each ingested episode is split by an LLM into 1-5 atomic Zettelkasten-style notes (Decision / Pattern / Observation / Learning / Error). Single batched embedding call. |
+| 📝 **Multi-note extraction** | Each ingested episode is split by an LLM into 1-5 atomic Zettelkasten-style notes. Notes carry two axes: `NoteKind` (Decision / Pattern / Observation / Learning / Error) and `MemoryType` (Semantic / Episodic / Procedural / Preference / Document / Reflection). Single batched embedding call. |
 | 🕒 **Bi-temporal graph** | AGE Cypher with `valid_from / valid_to / recorded_at / invalidated_at`. Supersession is a first-class operation, not a delete. Cytoscape graph viewer renders dashed edges for invalidated facts. |
 | 🔗 **A-MEM auto-linking** | New notes are linked to similar prior notes by similarity + LLM judgment, building a self-organizing knowledge web rather than a flat list. |
 | 🪞 **Reflection hierarchy** | Background service synthesizes recent notes into reflections; meta-reflections fold *across* prior reflections to surface long-arc themes (Letta sleep-time pattern). |
 | 🔐 **Multi-tenant by RLS** | Org → User → Project hierarchy enforced at the **database** layer via Postgres RLS + a `memory_app` NOBYPASSRLS role. API keys (SHA-256-hashed) resolve tenant scope. Admin keys gate `/api/secrets/*`. |
 | 🎛️ **Multi-provider LLM** | Azure OpenAI (Foundry v1), OpenAI direct, Anthropic, AWS Bedrock chat, Google Vertex chat. Switch via config — no code change. Embedding provider is independent from chat. |
-| 🧰 **MCP, REST, Web, CLI** | MCP stdio for Claude Code / Codex / Cursor; MCP HTTP at `/mcp` for cloud agents; REST at `/api/*`; Blazor admin UI at `/`; `memory` CLI for ops. |
-| 📦 **Backup, eval, ops** | One-click tenant zip (`/api/backup/download`), retrieval eval harness (Recall@K + MRR), Markdown round-trip (Obsidian-compatible), Azure Key Vault → OpenBao → JSON secret chain. |
+| 🧰 **MCP, REST, Web, CLI** | MCP stdio for Claude Code / Codex / Cursor; MCP HTTP at `/mcp` for cloud agents; typed save tools (`save_decision`, `save_coding_pattern`, UI/debug findings), hygiene tools, REST at `/api/*`; Blazor admin UI at `/`; `memory` CLI for ops. |
+| 📦 **Backup, eval, ops** | One-click tenant zip (`/api/backup/download`), retrieval eval harness (Recall@K + MRR + latency + route ablations), Markdown round-trip (Obsidian-compatible), Azure Key Vault → OpenBao → JSON secret chain. |
 
 ## Status
 
@@ -196,7 +196,18 @@ dotnet build src/Memory.Mcp.Stdio
 cp .mcp.json.example .mcp.json     # then fill in your bearer token
 ```
 
-The MCP server registers `save_episode`, `search_memory`, `get_entity`, `reflect`, `find_related_notes` — and they appear as tools in your client.
+The MCP server registers typed write tools (`save_user_preference`,
+`save_decision`, `save_coding_pattern`, `save_ui_test_finding`,
+`save_debug_finding`), raw `save_episode`, `search_memory`, `get_entity`,
+`reflect`, `find_related_notes`, hygiene tools (`supersede_note`,
+`invalidate_graph_edge`, `list_memory_hygiene`), plus the
+`memory_agent_guidance` prompt so capable clients can load proactive
+memory-use rules into their agent context.
+
+Typed write tools use the fast direct-note path: one curated note, no LLM
+extraction/entity extraction, and deferred embedding/A-MEM linking in a
+background worker. Raw `save_episode` keeps the full extraction path unless the
+caller explicitly sets `directNote=true`.
 
 ---
 
@@ -225,7 +236,7 @@ The secret-source chain is **JSON < OpenBao < Azure KV** (later wins); each laye
 
 ```
 src/
-  Memory.Domain/            entities, typed IDs, NoteKind enum
+  Memory.Domain/            entities, typed IDs, NoteKind + MemoryType enums
   Memory.Tenancy/           ITenantContext + AmbientTenantContext (AsyncLocal)
   Memory.Storage/           EF Core DbContext, AGE Cypher wrapper, RLS interceptor
   Memory.Llm/               5-provider gateway over Microsoft.Extensions.AI
@@ -241,7 +252,7 @@ src/
 Memory.AppHost/             .NET Aspire orchestration
 tests/                      Domain / Storage / Pipeline / E2E
 scripts/                    init-db.sql, smoke-test-api.sh, smoke-test-mcp.sh
-docs/                       seven focused docs — see Documentation below
+docs/                       focused docs — see Documentation below
 ```
 
 ---
@@ -255,7 +266,12 @@ Built-in eval harness for measuring search quality:
 memory eval gen-queries --count 30 --out eval-queries.json
 
 # 2. Replay through /api/search; print Recall@K + MRR
-memory eval run --top-k 10
+memory eval run --top-k 10 --out baseline.json
+memory eval run --top-k 10 --mode graph_rag --out graph.json
+memory eval run --top-k 10 --no-reranker --out no-reranker.json
+
+# 3. Or compare the standard route profiles in one pass
+memory eval sweep --in eval-queries.json --out-dir eval-results
 ```
 
 Run before/after a pipeline tweak (Reranker / GraphRetrieval / QueryExpansion / TimeDecay env vars) to see the actual delta. Without numbers, every "improvement" is a guess.
@@ -318,6 +334,8 @@ Detailed docs live under [`docs/`](docs/):
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module map, data flow diagrams for `save_episode` and `search_memory`, key invariants, where state lives, operational gotchas. |
 | [API.md](docs/API.md) | Every HTTP endpoint with curl examples — health, search, ingest, streaming chat, webhooks, eval, secrets admin, backup, MCP transport. |
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | Every config section + env var. Defaults, sources, the secret-source chain (Azure KV → OpenBao → JSON). |
+| [DOCUMENT-RAG-BLOB.md](docs/DOCUMENT-RAG-BLOB.md) | Planned Homelab Blob-backed document RAG: schema, ingest/retrieval flow, route modes, DevHub integration and guardrails. |
+| [EVALS.md](docs/EVALS.md) | Retrieval eval runbook: golden sets, profile comparisons, latency and quality gates. |
 | [MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md) | How to wire to Claude Code, Codex CLI, Cursor, Continue, ChatGPT desktop. Cross-model usage patterns. |
 | [USE-CASES.md](docs/USE-CASES.md) | Practical setups for programming notes, health log, personal life, research, shared collaboration. |
 | [PRIVACY.md](docs/PRIVACY.md) | What leaves your machine, by default. Per-provider retention. Recommended setups for sensitive content. Threat model. |

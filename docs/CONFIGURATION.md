@@ -133,6 +133,28 @@ All optional. Each section's `Enabled` defaults to false unless noted.
 | `VariantCount` | 3 |
 | `ModelOverride` | (gateway's chat model) |
 
+### `QueryRouting` — cheap control-plane routing before retrieval
+| Key | Default |
+|---|---|
+| `Enabled` | false |
+| `ModelOverride` | (gateway's chat model) |
+| `MaxRecentTurns` | 6 |
+| `MaxVariants` | 3 |
+| `MaxPromptChars` | 6000 |
+| `MaxResultsCap` | 50 |
+| `AllowDocumentRag` | false |
+
+When enabled, a small chat model rewrites vague follow-ups into standalone
+queries and selects a retrieval mode such as `memory_light`, `memory_medium`,
+`heavy_rag`, `graph_rag`, `document_rag`, `write_memory`, or `no_rag`.
+This is a fallback for simple REST/UI clients. Smart MCP callers such as Codex,
+Claude Code, or DevHub/Opus should normally pass route parameters directly in
+`search_memory` / `/api/search` instead of paying for another routing LLM call.
+
+`AllowDocumentRag` should stay false until a Blob/document chunk retriever is
+configured. With the default false value, `document_rag` routes are downgraded
+to heavy memory search and surfaced in the search route trace.
+
 ### `SaveFilter` — agentic importance gate
 | Key | Default |
 |---|---|

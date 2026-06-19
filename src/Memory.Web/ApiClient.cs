@@ -28,6 +28,7 @@ public sealed class ApiClient(HttpClient http)
         DateTimeOffset? since = null,
         DateTimeOffset? until = null,
         IReadOnlyList<string>? kinds = null,
+        IReadOnlyList<string>? memoryTypes = null,
         CancellationToken ct = default)
     {
         var body = new
@@ -38,6 +39,7 @@ public sealed class ApiClient(HttpClient http)
             since,
             until,
             kinds,
+            memoryTypes,
         };
         var response = await http.PostAsJsonAsync("api/search", body, ct);
         response.EnsureSuccessStatusCode();
@@ -75,7 +77,7 @@ public sealed class ApiClient(HttpClient http)
 }
 
 public sealed record EpisodeDto(Guid Id, string Source, string Content, DateTimeOffset IngestedAt, DateTimeOffset? OccurredAt);
-public sealed record NoteDto(Guid Id, string Content, string ContextDescription, List<string> Keywords, List<string> Tags, string Kind, DateTimeOffset CreatedAt);
+public sealed record NoteDto(Guid Id, string Content, string ContextDescription, List<string> Keywords, List<string> Tags, string Kind, string MemoryType, DateTimeOffset CreatedAt);
 public sealed record ReflectionDto(Guid Id, string Scope, string Summary, DateTimeOffset GeneratedAt, string GeneratorModel);
 public sealed record EntityDto(Guid Id, string Name, string Kind, Dictionary<string, string> Attributes, DateTimeOffset FirstSeenAt, DateTimeOffset LastSeenAt);
 public sealed record SearchHitDto(Guid NoteId, string Content, double Score, Guid[] RelatedEntityIds, SearchProvenanceDto? Provenance);
@@ -87,7 +89,29 @@ public sealed record SearchProvenanceDto(
     double Bm25Score,
     double GraphScore,
     double? RerankerScore);
-public sealed record SearchResultDto(int TotalCandidates, List<SearchHitDto> Hits, bool Abstain = false, string? AbstainReason = null);
+public sealed record SearchRouteTraceDto(
+    string OriginalQuery,
+    string StandaloneQuery,
+    string Mode,
+    string QueryType,
+    bool ShouldSearch,
+    List<string> QueryVariants,
+    int MaxResults,
+    bool UseVectorSearch,
+    bool UseBm25Search,
+    bool UseGraph,
+    bool UseReranker,
+    bool UseQueryExpansion,
+    bool UseImageSearch,
+    double VectorWeight,
+    double Bm25Weight,
+    double GraphWeight,
+    double ImageWeight,
+    string? RouterModel,
+    double? Confidence,
+    string? SkipReason,
+    Dictionary<string, string>? BlobFilters);
+public sealed record SearchResultDto(int TotalCandidates, List<SearchHitDto> Hits, bool Abstain = false, string? AbstainReason = null, SearchRouteTraceDto? Route = null);
 public sealed record EdgeDto(Guid Id, Guid From, Guid To, string Relation, DateTimeOffset RecordedAt, DateTimeOffset? InvalidatedAt);
 public sealed record SecretsStatusDto(bool Configured, string Address, string Mount);
 public sealed record SecretPathsDto(string[] Paths);

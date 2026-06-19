@@ -6,7 +6,12 @@ public sealed record IngestionRequest(
     string Source,
     string Content,
     DateTimeOffset? OccurredAt = null,
-    IReadOnlyDictionary<string, string>? Metadata = null);
+    IReadOnlyDictionary<string, string>? Metadata = null,
+    bool ForceSave = false,
+    MemoryType? MemoryTypeOverride = null,
+    NoteKind? NoteKindOverride = null,
+    bool DirectNote = false,
+    bool DeferEmbedding = false);
 
 public sealed record IngestionResult(
     EpisodeId? EpisodeId,

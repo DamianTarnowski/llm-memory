@@ -10,19 +10,38 @@ transport) expose:
 
 | Tool | Effect |
 |---|---|
-| `save_episode(source, content, occurredAt?)` | Save a raw episode. Pipeline runs save filter (optional) → extraction → embedding → AGE upserts → A-MEM linking. Returns episode id, note ids, entity ids, and `skipped`/`skipReason` when the filter dropped the input. |
-| `search_memory(query, maxResults?)` | Hybrid search across vector + BM25 + graph PPR + (optional) image-vector. Returns ranked notes with related entity ids. |
-| `get_entity(name, includeRelations?)` | Fetch an entity by canonical name + optionally its 1-hop neighbors with bi-temporal validity. |
-| `reflect(scope, since?, until?, maxNotes?)` | Generate a reflection over notes (or other reflections, when scope starts with `meta:`). |
+| `save_user_preference(preference, category?, appliesTo?, triggerQuote?, rationale?, strength?, occurredAt?)` | Save a durable user habit, workflow correction, communication preference, tooling preference, or "do not do this again" instruction. Intended for proactive agent use when the user explicitly asks to remember something or strongly corrects the model. Uses the fast direct-note path with deferred embedding. |
+| `save_decision(decision, rationale?, alternatives?, appliesTo?, outcome?, occurredAt?)` | Save a durable decision with rationale. Forces `MemoryType=Semantic`, `NoteKind=Decision`, bypasses the optional save filter, and uses the fast direct-note path with deferred embedding. |
+| `save_coding_pattern(pattern, problem?, solution?, appliesTo?, example?, rationale?, occurredAt?)` | Save a reusable implementation/workflow/test pattern. Forces `MemoryType=Procedural`, `NoteKind=Pattern`, direct-note path with deferred embedding. |
+| `save_ui_test_finding(app, finding, severity?, reproductionSteps?, expected?, actual?, evidence?, occurredAt?)` | Save a UI/visual/testing finding. Intended for Playwright/browser/a11y/manual QA results. Uses direct-note path. |
+| `save_debug_finding(scope, symptom, rootCause?, fix?, evidence?, lesson?, occurredAt?)` | Save a debugging/deploy finding or operational lesson. Uses direct-note path. |
+| `save_episode(source, content, occurredAt?, memoryType?, kind?, forceSave?, directNote?, deferEmbedding?)` | Save a raw episode. Default path runs save filter (unless `forceSave=true`) → extraction → embedding → AGE upserts → A-MEM linking. With `directNote=true`, stores the content as one explicit note without LLM extraction/entity extraction. `deferEmbedding` defaults to `directNote`; when true, embedding and A-MEM linking run in a background worker. |
+| `search_memory(query, maxResults?, ...)` | Hybrid search across vector + BM25 + graph PPR + (optional) image-vector. Smart callers can pass routing params such as `mode`, `standaloneQuery`, `useGraph`, `useReranker`, `vectorWeight`, `bm25Weight`, and `graphWeight`. Returns ranked notes, related entity ids and route trace. |
+| `get_entity(name, maxEdges?)` | Fetch an entity by canonical name + its 1-hop neighbors with bi-temporal validity. |
+| `reflect(scope?, maxNotes?)` | Generate a reflection over recent notes. |
 | `find_related_notes(noteId, maxResults?)` | A-MEM links — show what similar notes were auto-linked at ingest time. |
+| `supersede_note(noteId, reason, replacementNoteId?)` | Mark a note superseded so it stops appearing in retrieval, with an audit episode. |
+| `invalidate_graph_edge(edgeId, reason)` | Invalidate a wrong/outdated graph edge, with an audit episode. |
+| `list_memory_hygiene(limit?)` | Small cleanup report: superseded notes, duplicate/supersedence relations, and oldest reflections. |
 
 Resources (read-only context that LLMs can pull on demand):
 
 | URI | Returns |
 |---|---|
-| `memory://episodes` | Recent episodes (raw inputs) |
-| `memory://notes` | Recent atomic notes |
-| `memory://reflections` | Recent reflections |
+| `memory://project` | Active project summary: counts, tenant ids, recent top entities |
+| `memory://core/project-profile` | Startup context: memory-type/kind counts, recent decisions, procedural memory, preferences, latest reflection |
+| `memory://core/user-preferences` | Active durable preferences/corrections |
+| `memory://core/recent-decisions` | Recent active decisions |
+| `memory://core/procedures` | Procedural memories: coding patterns, workflows, checklists, gotchas |
+| `memory://entity/{name}` | Single entity with incoming/outgoing 1-hop graph edges |
+| `memory://note/{id}` | Single note with source episode id, keywords, tags and supersession state |
+| `memory://reflection/latest` | Most recent reflection for the active project |
+
+Prompts:
+
+| Prompt | Purpose |
+|---|---|
+| `memory_agent_guidance` | System guidance for agents: search with smart-caller routing, rewrite vague follow-ups, save durable preferences/corrections proactively, and avoid saving secrets or transient emotions. |
 
 ---
 
@@ -64,8 +83,14 @@ Then in Claude Code:
 ```
 /mcp
 # memory  ──────  ✓ connected
-#   tools: save_episode, search_memory, get_entity, reflect, find_related_notes
-#   resources: memory://episodes, memory://notes, memory://reflections
+#   tools: save_user_preference, save_decision, save_coding_pattern, save_ui_test_finding,
+#          save_debug_finding, save_episode, search_memory, get_entity, reflect,
+#          find_related_notes, supersede_note, invalidate_graph_edge, list_memory_hygiene
+#   resources: memory://project, memory://core/project-profile,
+#              memory://core/user-preferences, memory://core/recent-decisions,
+#              memory://core/procedures, memory://entity/{name}, memory://note/{id},
+#              memory://reflection/latest
+#   prompts: memory_agent_guidance
 ```
 
 **Per-project tip:** different projects can use different `Tenant__ProjectId`
@@ -198,6 +223,38 @@ The point of this design — same store, many models. Some setups that work:
 
 When asking an agent to use these tools, calibrate expectations:
 
+- `search_memory` is usually called by a capable model already. Claude Code,
+  Codex and DevHub/Opus should set route parameters directly when they know the
+  intent:
+  - `mode=memory_light` for simple lookups;
+  - `mode=heavy_rag` for vague follow-ups or broad architecture questions;
+  - `mode=graph_rag` for relations/dependencies/ownership questions;
+  - `standaloneQuery=...` when the user wrote a follow-up like "powiedz o tym więcej";
+  - `useGraph/useReranker/useQueryExpansion` and stream weights to control cost/quality.
+- The optional `QueryRouting` mini-model is for simpler REST/UI callers that
+  cannot choose those parameters themselves. Do not force Codex/Claude through
+  another routing LLM unless you explicitly want that fallback behavior.
+- `save_user_preference` is the preferred tool for durable user corrections:
+  communication style, workflow habits, tool preferences, "do not do this again"
+  instructions, and repeated frustrations. Save the actionable operating rule,
+  not the user's transient emotion.
+- Use typed write tools when possible:
+  `save_decision` for decisions, `save_coding_pattern` for reusable workflows,
+  `save_ui_test_finding` for UI/testing defects, and `save_debug_finding` for
+  root causes/fixes. Typed writes force the intended `MemoryType`/`NoteKind`
+  and bypass the optional save filter.
+- Notes now carry two axes:
+  `NoteKind` = statement shape (`Decision`, `Pattern`, `Error`, etc.);
+  `MemoryType` = use axis (`Semantic`, `Episodic`, `Procedural`, `Preference`,
+  `Document`, `Reflection`). Smart callers may pass `memoryTypes` to
+  `search_memory` when the intent is clear.
+- Load `memory://core/project-profile` at session start when supported. It is
+  cheaper and less noisy than running an open-ended search just to orient an
+  agent.
+- `memory_agent_guidance` should be loaded into the agent/system context when a
+  client supports MCP prompts. It tells the agent to actively notice explicit
+  "remember this" requests and strong corrections such as "nie rób tak",
+  "mówiłem już", "wkurza mnie gdy", "zawsze rób" or "najpierw sprawdzaj".
 - `save_episode` is **deliberately conservative** when SaveFilter is on. If
   your agent expects every save to succeed, disable the filter or surface
   `skipped`/`skipReason` in the agent prompt so it can adapt.

@@ -32,8 +32,14 @@ public static class PipelineServiceCollectionExtensions
         services.AddOptions<QueryExpansionOptions>()
             .Bind(configuration.GetSection(QueryExpansionOptions.SectionName));
 
+        services.AddOptions<QueryRoutingOptions>()
+            .Bind(configuration.GetSection(QueryRoutingOptions.SectionName));
+
         services.AddOptions<SaveFilterOptions>()
             .Bind(configuration.GetSection(SaveFilterOptions.SectionName));
+
+        services.AddOptions<EmbeddingBackfillOptions>()
+            .Bind(configuration.GetSection(EmbeddingBackfillOptions.SectionName));
 
         services.AddOptions<AbstentionOptions>()
             .Bind(configuration.GetSection(AbstentionOptions.SectionName));
@@ -44,10 +50,14 @@ public static class PipelineServiceCollectionExtensions
         services.AddScoped<IReranker, LlmReranker>();
         services.AddScoped<IGraphRetriever, PprGraphRetriever>();
         services.AddScoped<IQueryExpander, LlmQueryExpander>();
+        services.AddScoped<IQueryRouter, LlmQueryRouter>();
         services.AddScoped<IIngestionPipeline, SimpleIngestionPipeline>();
         services.AddScoped<ISearchPipeline, HybridSearchPipeline>();
         services.AddScoped<IReflectionPipeline, SimpleReflectionPipeline>();
 
+        services.AddSingleton<EmbeddingBackfillQueue>();
+        services.AddSingleton<IEmbeddingBackfillQueue>(sp => sp.GetRequiredService<EmbeddingBackfillQueue>());
+        services.AddHostedService<EmbeddingBackfillService>();
         services.AddHostedService<ReflectionBackgroundService>();
 
         return services;

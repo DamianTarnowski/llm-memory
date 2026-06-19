@@ -146,6 +146,12 @@ memory eval gen-queries --count 30 --out eval-queries.json
 
 # Run + report Recall@K + MRR
 memory eval run --in eval-queries.json --top-k 10
+
+# Compare standard route profiles and write JSON/Markdown output
+memory eval sweep --in eval-queries.json --top-k 10 --out-dir eval-results
+
+# Fail CI/deploy when the chosen profile regresses
+memory eval gate --summary eval-results/summary.json --profile memory-light
 ```
 
 Use this before/after pipeline tweaks (Reranker / GraphRetrieval / TimeDecay

@@ -22,14 +22,23 @@ internal static class RrfFuser
         List<RankedHit> bm25,
         List<RankedHit> graph,
         List<RankedHit> image,
-        int k)
+        int k) =>
+        Fuse(vector, bm25, graph, image, k, RetrievalWeights.Default);
+
+    public static List<SearchHit> Fuse(
+        List<RankedHit> vector,
+        List<RankedHit> bm25,
+        List<RankedHit> graph,
+        List<RankedHit> image,
+        int k,
+        RetrievalWeights weights)
     {
         var pool = new Dictionary<NoteId, FusedHit>();
 
-        Add(pool, vector, k, stream: Stream.Vector);
-        Add(pool, bm25, k, stream: Stream.Bm25);
-        Add(pool, graph, k, stream: Stream.Graph);
-        Add(pool, image, k, stream: Stream.Image);
+        Add(pool, vector, k, stream: Stream.Vector, weight: weights.Vector);
+        Add(pool, bm25, k, stream: Stream.Bm25, weight: weights.Bm25);
+        Add(pool, graph, k, stream: Stream.Graph, weight: weights.Graph);
+        Add(pool, image, k, stream: Stream.Image, weight: weights.Image);
 
         return pool.Values
             .OrderByDescending(f => f.RrfScore)
@@ -80,11 +89,13 @@ internal static class RrfFuser
 
     private enum Stream { Vector, Bm25, Graph, Image }
 
-    private static void Add(Dictionary<NoteId, FusedHit> pool, List<RankedHit> hits, int k, Stream stream)
+    private static void Add(Dictionary<NoteId, FusedHit> pool, List<RankedHit> hits, int k, Stream stream, double weight)
     {
+        if (weight <= 0) return;
+
         foreach (var h in hits)
         {
-            var contribution = 1.0 / (k + h.Rank);
+            var contribution = weight * (1.0 / (k + h.Rank));
             if (!pool.TryGetValue(h.NoteId, out var existing))
             {
                 existing = new FusedHit
@@ -142,3 +153,8 @@ internal sealed record RankedHit(
     EntityId[] Related,
     bool FromVector,
     bool FromBm25);
+
+internal sealed record RetrievalWeights(double Vector, double Bm25, double Graph, double Image)
+{
+    public static RetrievalWeights Default { get; } = new(1.0, 1.0, 1.0, 1.0);
+}
