@@ -2,6 +2,7 @@ using Memory.Pipeline.Ingestion;
 using Memory.Pipeline.Linking;
 using Memory.Pipeline.Reflection;
 using Memory.Pipeline.Search;
+using Memory.Pipeline.Skills;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -44,6 +45,9 @@ public static class PipelineServiceCollectionExtensions
         services.AddOptions<AbstentionOptions>()
             .Bind(configuration.GetSection(AbstentionOptions.SectionName));
 
+        services.AddOptions<SkillsOptions>()
+            .Bind(configuration.GetSection(SkillsOptions.SectionName));
+
         services.AddScoped<IExtractor, LlmExtractor>();
         services.AddScoped<IImportanceJudge, LlmImportanceJudge>();
         services.AddScoped<INoteLinker, LlmNoteLinker>();
@@ -54,6 +58,8 @@ public static class PipelineServiceCollectionExtensions
         services.AddScoped<IIngestionPipeline, SimpleIngestionPipeline>();
         services.AddScoped<ISearchPipeline, HybridSearchPipeline>();
         services.AddScoped<IReflectionPipeline, SimpleReflectionPipeline>();
+        services.AddScoped<ISkillService, SkillService>();
+        services.AddScoped<Skills.Synthesis.ISkillSynthesizer, Skills.Synthesis.SkillSynthesizer>();
 
         services.AddSingleton<EmbeddingBackfillQueue>();
         services.AddSingleton<IEmbeddingBackfillQueue>(sp => sp.GetRequiredService<EmbeddingBackfillQueue>());

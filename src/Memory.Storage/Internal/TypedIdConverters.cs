@@ -26,3 +26,6 @@ internal sealed class EdgeIdConverter()
 
 internal sealed class ReflectionIdConverter()
     : ValueConverter<ReflectionId, Guid>(id => id.Value, value => new ReflectionId(value));
+
+internal sealed class SkillIdConverter()
+    : ValueConverter<SkillId, Guid>(id => id.Value, value => new SkillId(value));

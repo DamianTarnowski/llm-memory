@@ -1,0 +1,27 @@
+{
+  "//": "Merge into ~/.codex/hooks.json. Codex parses but SKIPS async hooks, so these run synchronously and the script detaches itself (-SelfBackground). Codex has no SessionEnd event — Stop + PreCompact with content-hash dedup covers it. Adjust the script path.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"C:/Users/YOU/source/repos/LLM Memory/scripts/hooks/harvest.ps1\" -SelfBackground",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"C:/Users/YOU/source/repos/LLM Memory/scripts/hooks/harvest.ps1\" -SelfBackground",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

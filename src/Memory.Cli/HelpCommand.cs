@@ -17,6 +17,8 @@ internal static class HelpCommand
               tenants    Schema-per-org foundation: provision / list / drop tenant schemas.
               eval       Retrieval evaluation harness: gen-queries + run (Recall@K + MRR).
               md         Markdown round-trip: export notes / import folder of .md files.
+              skills     Skill library ops: sync published skills to agent skill dirs
+                            (~/.claude/skills + ~/.agents/skills), init-dirs, list.
 
             Examples:
               memory init \

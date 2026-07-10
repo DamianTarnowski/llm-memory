@@ -23,6 +23,13 @@ transport) expose:
 | `supersede_note(noteId, reason, replacementNoteId?)` | Mark a note superseded so it stops appearing in retrieval, with an audit episode. |
 | `invalidate_graph_edge(edgeId, reason)` | Invalidate a wrong/outdated graph edge, with an audit episode. |
 | `list_memory_hygiene(limit?)` | Small cleanup report: superseded notes, duplicate/supersedence relations, and oldest reflections. |
+| `save_skill(name, description, body, whenToUse?, publish?, changeSummary?)` | Create/update a reusable skill (Agent Skills / SKILL.md format). `publish:true` goes live immediately — versioned, audited, revertible. See [SKILLS.md](SKILLS.md). |
+| `propose_skill(name, description, rationale, evidence?)` | Lightweight mid-session skill proposal → draft with provenance to the conversation. |
+| `search_skills(query, maxResults?, includeDeprecated?)` | Hybrid search (embedding + text) over the skill library. |
+| `get_skill(name)` | Full SKILL.md render + lifecycle metadata and counters. |
+| `list_skills(status?, limit?)` | Skill catalog with status, version, helpful/harmful/usage counters. |
+| `skill_feedback(name, outcome, detail?)` | Record helpful/harmful after using a skill; drives ordering and deprecation. |
+| `promote_skill(name)` / `deprecate_skill(name, reason)` | Skill lifecycle ops with audit episodes. |
 
 Resources (read-only context that LLMs can pull on demand):
 

@@ -162,6 +162,149 @@ app.MapGet("/api/reflections", async (MemoryDbContext db, int limit = 50, Cancel
         .Select(r => new { id = r.Id.Value, scope = r.Scope, summary = r.Summary, generatedAt = r.GeneratedAt, generatorModel = r.GeneratorModel })
         .ToListAsync(ct));
 
+app.MapGet("/api/skills", async (Memory.Pipeline.Skills.ISkillService skills, string? status = null, int limit = 100, CancellationToken ct = default) =>
+{
+    Memory.Domain.SkillStatus? filter = null;
+    if (!string.IsNullOrWhiteSpace(status))
+    {
+        if (!Enum.TryParse<Memory.Domain.SkillStatus>(status, ignoreCase: true, out var parsed))
+        {
+            return Results.BadRequest(new { error = $"unknown status '{status}'" });
+        }
+        filter = parsed;
+    }
+
+    var list = await skills.ListAsync(filter, limit, ct);
+    return Results.Ok(list.Select(s => new
+    {
+        name = s.Name,
+        description = s.Description,
+        whenToUse = s.WhenToUse,
+        status = s.Status.ToString(),
+        origin = s.Origin.ToString(),
+        version = s.CurrentVersion,
+        helpfulCount = s.HelpfulCount,
+        harmfulCount = s.HarmfulCount,
+        usageCount = s.UsageCount,
+        lastUsedAt = s.LastUsedAt,
+        updatedAt = s.UpdatedAt,
+        untrustedInput = s.UntrustedInput,
+    }));
+});
+
+app.MapGet("/api/skills/{name}", async (string name, Memory.Pipeline.Skills.ISkillService skills, string? flavor = null, CancellationToken ct = default) =>
+{
+    var skill = await skills.GetAsync(name, ct);
+    if (skill is null)
+    {
+        return Results.NotFound(new { error = $"skill '{name}' not found" });
+    }
+
+    var renderFlavor = string.Equals(flavor, "agents", StringComparison.OrdinalIgnoreCase)
+        ? Memory.Domain.SkillRenderFlavor.AgentsStandard
+        : Memory.Domain.SkillRenderFlavor.ClaudeCode;
+
+    return Results.Ok(new
+    {
+        name = skill.Name,
+        description = skill.Description,
+        whenToUse = skill.WhenToUse,
+        status = skill.Status.ToString(),
+        origin = skill.Origin.ToString(),
+        version = skill.CurrentVersion,
+        helpfulCount = skill.HelpfulCount,
+        harmfulCount = skill.HarmfulCount,
+        usageCount = skill.UsageCount,
+        lastUsedAt = skill.LastUsedAt,
+        createdAt = skill.CreatedAt,
+        updatedAt = skill.UpdatedAt,
+        untrustedInput = skill.UntrustedInput,
+        generatorModel = skill.GeneratorModel,
+        skillMarkdown = Memory.Domain.SkillMarkdown.Render(skill, renderFlavor),
+    });
+});
+
+app.MapPost("/api/skills/harvest", async (
+    HarvestTranscriptBody body,
+    MemoryDbContext db,
+    ITenantContext tenant,
+    TimeProvider time,
+    CancellationToken ct = default) =>
+{
+    var scope = tenant.Require();
+    if (string.IsNullOrWhiteSpace(body.Transcript))
+    {
+        return Results.BadRequest(new { error = "transcript is required" });
+    }
+    if (body.Transcript.Length > Memory.Domain.HarvestIntake.MaxTranscriptBytes)
+    {
+        return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+    }
+
+    // Content-only by design: a server-side path read would be an authenticated
+    // arbitrary-file-read primitive. Secrets are redacted before the row is stored.
+    var payload = Memory.Domain.HarvestIntake.Prepare(body.Transcript);
+
+    var exists = await db.HarvestedSessions.AnyAsync(h => h.ContentHash == payload.ContentHash, ct);
+    if (exists)
+    {
+        return Results.Ok(new { accepted = false, duplicate = true, redactions = payload.Redactions });
+    }
+
+    var session = new Memory.Domain.HarvestedSession
+    {
+        Id = Guid.NewGuid(),
+        Project = scope.Project,
+        Source = string.IsNullOrWhiteSpace(body.Source) ? "unknown" : body.Source,
+        SessionId = string.IsNullOrWhiteSpace(body.SessionId) ? "unknown" : body.SessionId,
+        ContentHash = payload.ContentHash,
+        TranscriptGzip = payload.TranscriptGzip,
+        StatsJson = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            lines = payload.Lines,
+            chars = payload.Chars,
+            redactions = payload.Redactions,
+            cwd = body.Cwd,
+            gitBranch = body.GitBranch,
+        }),
+        SubmittedAt = time.GetUtcNow(),
+    };
+    db.HarvestedSessions.Add(session);
+
+    try
+    {
+        await db.SaveChangesAsync(ct);
+    }
+    catch (DbUpdateException)
+    {
+        // Lost the race against a concurrent double-fire — the unique
+        // (project_id, content_hash) index makes this a benign duplicate.
+        return Results.Ok(new { accepted = false, duplicate = true, redactions = payload.Redactions });
+    }
+
+    return Results.Ok(new { accepted = true, duplicate = false, id = session.Id, redactions = payload.Redactions });
+});
+
+app.MapPost("/api/skills/synthesize", async (
+    Memory.Pipeline.Skills.Synthesis.ISkillSynthesizer synthesizer,
+    ITenantContext tenant,
+    int? maxSessions = null,
+    CancellationToken ct = default) =>
+{
+    _ = tenant.Require();
+    var result = await synthesizer.RunOnceAsync(maxSessions, ct);
+    return Results.Ok(new
+    {
+        sessionsClaimed = result.SessionsClaimed,
+        sessionsProcessed = result.SessionsProcessed,
+        sessionsSkipped = result.SessionsSkipped,
+        sessionsFailed = result.SessionsFailed,
+        skillsCreated = result.SkillsCreated,
+        skillsUpdated = result.SkillsUpdated,
+        messages = result.Messages,
+    });
+});
+
 app.MapGet("/api/edges", async (IGraphContext graph, ITenantContext tenant, int limit = 200, CancellationToken ct = default) =>
 {
     var scope = tenant.Require();
@@ -736,6 +879,12 @@ public sealed record SearchRouteBody(
 }
 
 public sealed record SecretDataPostBody(string Path, Dictionary<string, string>? Keys);
+public sealed record HarvestTranscriptBody(
+    string Source,
+    string SessionId,
+    string Transcript,
+    string? Cwd = null,
+    string? GitBranch = null);
 public sealed record EvalPerQuery(
     Guid NoteId,
     string Query,

@@ -1,0 +1,29 @@
+{
+  "//": "Merge into ~/.claude/settings.json (user-wide) — the harvest script itself allowlists repos via .llm-memory.json, so a global hook is safe. Adjust the script path.",
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"C:/Users/YOU/source/repos/LLM Memory/scripts/hooks/harvest.ps1\"",
+            "async": true,
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"C:/Users/YOU/source/repos/LLM Memory/scripts/hooks/harvest.ps1\"",
+            "async": true,
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

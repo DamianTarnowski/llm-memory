@@ -47,3 +47,9 @@ public readonly record struct ReflectionId(Guid Value)
     public static ReflectionId New() => new(Guid.NewGuid());
     public override string ToString() => Value.ToString("D");
 }
+
+public readonly record struct SkillId(Guid Value)
+{
+    public static SkillId New() => new(Guid.NewGuid());
+    public override string ToString() => Value.ToString("D");
+}

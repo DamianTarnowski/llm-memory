@@ -1,0 +1,7 @@
+{
+  "//": "Copy as .llm-memory.json into the ROOT of every repo you want harvested. Repos without this marker are never touched. Do NOT commit it if it carries a connection string — add it to .git/info/exclude.",
+  "orgId": "00000000-0000-0000-0000-000000000000",
+  "projectId": "00000000-0000-0000-0000-000000000000",
+  "connectionString": "Host=localhost;Port=5435;Database=llm_memory;Username=memory_app;Password=CHANGE_ME",
+  "cliPath": "C:/Users/YOU/source/repos/LLM Memory/src/Memory.Cli/bin/Debug/net10.0/memory.exe"
+}

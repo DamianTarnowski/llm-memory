@@ -21,6 +21,13 @@ public sealed class MemoryDbContext(DbContextOptions<MemoryDbContext> options) :
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<TenantSchema> TenantSchemas => Set<TenantSchema>();
 
+    public DbSet<Skill> Skills => Set<Skill>();
+    public DbSet<SkillVersion> SkillVersions => Set<SkillVersion>();
+    public DbSet<SkillProvenance> SkillProvenances => Set<SkillProvenance>();
+    public DbSet<SkillEmbedding> SkillEmbeddings => Set<SkillEmbedding>();
+    public DbSet<SkillUsageEvent> SkillUsageEvents => Set<SkillUsageEvent>();
+    public DbSet<HarvestedSession> HarvestedSessions => Set<HarvestedSession>();
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         base.OnConfiguring(optionsBuilder);
@@ -48,5 +55,6 @@ public sealed class MemoryDbContext(DbContextOptions<MemoryDbContext> options) :
         configurationBuilder.Properties<EntityId>().HaveConversion<EntityIdConverter>();
         configurationBuilder.Properties<EdgeId>().HaveConversion<EdgeIdConverter>();
         configurationBuilder.Properties<ReflectionId>().HaveConversion<ReflectionIdConverter>();
+        configurationBuilder.Properties<SkillId>().HaveConversion<SkillIdConverter>();
     }
 }

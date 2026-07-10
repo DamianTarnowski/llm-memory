@@ -56,5 +56,18 @@ public static class MemoryPrompts
           contradiction and leaving both active.
         - If a graph relation is confirmed wrong, use invalidate_graph_edge.
         - Use list_memory_hygiene before larger cleanups.
+
+        Skills (reusable procedural knowledge, SKILL.md format):
+        - Before unfamiliar multi-step work, call search_skills — a learned skill may
+          already cover the workflow. If one matches, get_skill and follow it.
+        - When you finish something that required real discovery (multiple failed
+          attempts, non-obvious fix, project-specific procedure) and it will recur,
+          capture it: save_skill with publish=true for a complete, verified workflow,
+          or propose_skill when fleshing it out now would derail the task.
+        - A skill is NOT a fact or preference — those belong in typed saves above.
+          A skill is a how-to: steps, commands, checks, pitfalls.
+        - After using a skill, call skill_feedback (helpful/harmful). If a skill is
+          confirmed wrong or superseded, deprecate_skill with a reason.
+        - Never put secrets in skills; prefer placeholders over machine-specific values.
         """;
 }

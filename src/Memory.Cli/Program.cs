@@ -15,5 +15,6 @@ return args[0] switch
     "tenants" => await TenantsCommand.RunAsync(args[1..]).ConfigureAwait(false),
     "eval" => await EvalCommand.RunAsync(args[1..]).ConfigureAwait(false),
     "md" => await MarkdownCommand.RunAsync(args[1..]).ConfigureAwait(false),
+    "skills" => await SkillsCommand.RunAsync(args[1..]).ConfigureAwait(false),
     _ => HelpCommand.Unknown(args[0]),
 };
