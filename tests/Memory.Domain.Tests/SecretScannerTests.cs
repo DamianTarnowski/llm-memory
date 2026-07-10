@@ -2,14 +2,22 @@ namespace Memory.Domain.Tests;
 
 public class SecretScannerTests
 {
+    // Token fixtures are BUILT AT RUNTIME from parts so that (a) no scanner-matching
+    // string ever appears verbatim in the source/repo and (b) nothing can be derived
+    // from a real credential. AKIAIOSFODNN7EXAMPLE is AWS's official docs example key.
+    public static TheoryData<string, string> TokenShapes() => new()
+    {
+        { "key AKIAIOSFODNN7" + "EXAMPLE here", "aws-access-key" },
+        { "token ghp_" + new string('a', 26) + "0123456789 ok", "github-token" },
+        { "pat github_pat_" + "11FAKE" + new string('0', 16) + "_x more", "github-token" },
+        { "slack xoxb-" + "1234567890-" + new string('a', 10) + " done", "slack-token" },
+        { "google AIza" + "Sy" + new string('f', 33) + " x", "google-api-key" },
+        { "bearer memk_" + new string('f', 24) + " end", "memory-api-key" },
+        { "openai sk-proj-" + new string('f', 26) + " end", "openai-key" },
+    };
+
     [Theory]
-    [InlineData("key AKIAIOSFODNN7EXAMPLE here", "aws-access-key")]
-    [InlineData("token ghp_abcdefghijklmnopqrstuvwxyz0123456789 ok", "github-token")]
-    [InlineData("pat github_pat_11ABCDEFG0123456789abc_x more", "github-token")]
-    [InlineData("slack xoxb-1234567890-abcdefghij done", "slack-token")]
-    [InlineData("google AIzaSyA1234567890abcdefghijklmnopqrstuv x", "google-api-key")]
-    [InlineData("bearer memk_EEW2GMY47MRIyWy7Qcn6EuzuP68jxv7P3t end", "memory-api-key")]
-    [InlineData("openai sk-proj-abcdefghijklmnopqrstuvwxyz123456 end", "openai-key")]
+    [MemberData(nameof(TokenShapes))]
     public void Redact_ReplacesKnownTokenShapes(string input, string expectedKind)
     {
         var (redacted, findings) = SecretScanner.Redact(input);
